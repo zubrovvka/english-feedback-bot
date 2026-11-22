@@ -22,7 +22,7 @@ import config
 import database as db
 import gemini_parser
 import tts_service
-from services import quiz_service, card_service
+from services import quiz_service, card_service, translation_service
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger(__name__)
@@ -183,6 +183,10 @@ def get_next_card():
         return jsonify({"card": None, "is_extra": False})
 
     card = dict(cards[0])
+    if not card.get("translation"):
+        trans = translation_service.get_or_create_card_translation(card)
+        if trans:
+            card["translation"] = trans
     return jsonify({"card": card, "is_extra": is_extra})
 
 
@@ -235,15 +239,21 @@ def quick_add_word():
     if not word:
         return jsonify({"error": "Слово не указано"}), 400
 
-    # Auto-translate with Gemini if available and translation is missing
-    if not translation and config.GEMINI_API_KEY:
-        try:
-            info = asyncio.run(gemini_parser.translate_word_with_context(word, sentence, config.GEMINI_API_KEY))
-            translation = info.get("translation") or translation
-            transcription = info.get("transcription") or transcription
-            explanation = info.get("explanation") or explanation
-        except Exception as e:
-            logger.warning(f"Auto-translate error: {e}")
+    # Auto-translate with Gemini if available, or fallback free translation
+    if not translation:
+        if config.GEMINI_API_KEY:
+            try:
+                info = asyncio.run(gemini_parser.translate_word_with_context(word, sentence, config.GEMINI_API_KEY))
+                translation = info.get("translation") or translation
+                transcription = info.get("transcription") or transcription
+                explanation = info.get("explanation") or explanation
+            except Exception as e:
+                logger.warning(f"Auto-translate error: {e}")
+        if not translation:
+            try:
+                translation = translation_service.translate_text(word)
+            except Exception as e:
+                logger.warning(f"Fallback translation error: {e}")
 
     card = card_service.create_quick_add_card(
         word=word,
@@ -254,6 +264,16 @@ def quick_add_word():
         user_id=0
     )
     return jsonify({"success": True, "card": card})
+
+
+@app.route("/api/translate", methods=["POST"])
+def translate_text_endpoint():
+    data = request.json or {}
+    text = data.get("text", "").strip()
+    if not text:
+        return jsonify({"translation": ""})
+    translation = translation_service.translate_text(text)
+    return jsonify({"translation": translation})
 
 
 # -------------------------------------------------------------

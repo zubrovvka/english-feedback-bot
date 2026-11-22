@@ -155,17 +155,23 @@ async function loadStats() {
   }
 }
 
-function renderInteractiveWords(text) {
+function renderInteractiveWords(text, contextSentence) {
   if (!text) return '';
-  const tokens = text.split(/(\s+|[.,!?;:()"])/);
+  const context = (contextSentence || text).replace(/"/g, '&quot;');
+  const tokens = text.split(/(\s+|[.,!?;:()«»""—–\/\n]+)/);
   return tokens.map(token => {
-    if (/^[a-zA-Z'-]{2,}$/.test(token)) {
-      const escaped = token.replace(/'/g, "\\'");
-      const escapedSentence = text.replace(/'/g, "\\'").replace(/"/g, '&quot;');
-      return `<span class="interactive-word" onclick="openQuickAdd('${escaped}', '${escapedSentence}')">${token}</span>`;
+    if (/^[a-zA-Z][a-zA-Z'-]*[a-zA-Z]$/.test(token) || /^[a-zA-Z]{2,}$/.test(token)) {
+      const escapedToken = token.replace(/"/g, '&quot;');
+      return `<span class="interactive-word" data-word="${escapedToken}" data-sentence="${context}" onclick="handleInteractiveWordClick(this)">${token}</span>`;
     }
     return token;
   }).join('');
+}
+
+function handleInteractiveWordClick(el) {
+  const word = el.getAttribute("data-word");
+  const sentence = el.getAttribute("data-sentence");
+  openQuickAdd(word, sentence);
 }
 
 // ==========================================================
@@ -211,7 +217,12 @@ function renderCard(card, isExtra) {
   if (isExtra) extraEl.classList.remove("hidden");
   else extraEl.classList.add("hidden");
 
-  document.getElementById("card-front").innerText = card.front;
+  const frontEl = document.getElementById("card-front");
+  if (/[a-zA-Z]{2,}/.test(card.front)) {
+    frontEl.innerHTML = renderInteractiveWords(card.front, card.front);
+  } else {
+    frontEl.innerText = card.front;
+  }
   const transEl = document.getElementById("card-transcription");
   if (card.transcription) {
     transEl.innerText = card.transcription;
@@ -226,7 +237,22 @@ function renderCard(card, isExtra) {
   else if (card.type === 'suggestion') promptEl.innerText = "Вспомни продвинутый синоним и нажми «Показать ответ»";
   else promptEl.innerText = "Вспомни перевод и нажми «Показать ответ»";
 
-  document.getElementById("card-back").innerText = card.back;
+  const backEl = document.getElementById("card-back");
+  if (/[a-zA-Z]{2,}/.test(card.back)) {
+    backEl.innerHTML = renderInteractiveWords(card.back, card.back);
+  } else {
+    backEl.innerText = card.back;
+  }
+
+  // Full Russian translation of sentence / phrase
+  const transBox = document.getElementById("card-translation-box");
+  const transTextEl = document.getElementById("card-translation");
+  if (card.translation && card.translation.trim()) {
+    transTextEl.innerText = card.translation.trim();
+    transBox.classList.remove("hidden");
+  } else {
+    transBox.classList.add("hidden");
+  }
 
   const expBox = document.getElementById("card-explanation-box");
   const expEl = document.getElementById("card-explanation");
@@ -240,7 +266,7 @@ function renderCard(card, isExtra) {
   const exBox = document.getElementById("card-example-box");
   const exEl = document.getElementById("card-example");
   if (card.example) {
-    exEl.innerHTML = renderInteractiveWords(card.example);
+    exEl.innerHTML = renderInteractiveWords(card.example, card.example);
     exBox.classList.remove("hidden");
   } else {
     exBox.classList.add("hidden");
@@ -563,15 +589,14 @@ function playCardAudioDirect(cardId) {
 // 7. QUICK-ADD WORD (IN-CONTEXT MODAL)
 // ==========================================================
 function openQuickAdd(word, sentence) {
-  const clean = word.replace(/[.,!?;:()"]/g, "").trim();
+  const clean = word.replace(/^[^\w]+|[^\w]+$/g, "").trim();
   document.getElementById("qa-word").value = clean;
   document.getElementById("qa-example").value = sentence || '';
   document.getElementById("qa-translation").value = '';
   document.getElementById("modal-quick-add").classList.remove("hidden");
 
-  if (hasGeminiKey) {
-    autoTranslateQuickAdd();
-  }
+  // Always auto-translate clicked word immediately
+  autoTranslateQuickAdd();
 }
 
 function closeQuickAddModal() {
@@ -586,14 +611,14 @@ async function autoTranslateQuickAdd() {
   const aiBtn = document.getElementById("qa-btn-ai");
   aiBtn.innerText = "⏳...";
   try {
-    const res = await fetch("/api/cards/quick-add", {
+    const res = await fetch("/api/translate", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ word: word, sentence: sentence, translation: "" })
+      body: JSON.stringify({ text: word, sentence: sentence })
     });
     const data = await res.json();
-    if (data.card && data.card.back) {
-      document.getElementById("qa-translation").value = data.card.back;
+    if (data.translation) {
+      document.getElementById("qa-translation").value = data.translation;
     }
   } catch (e) {
     console.error(e);

@@ -136,8 +136,15 @@
         <!-- Answer (Back, revealed on click) -->
         <div id="card-back-container" class="hidden border-t border-slate-800 pt-4 mt-2 text-left space-y-3">
           <div>
-            <span class="text-xs text-slate-400 font-semibold uppercase tracking-wider">Ответ / Перевод:</span>
+            <div class="flex items-center justify-between">
+              <span id="card-back-label" class="text-xs text-slate-400 font-semibold uppercase tracking-wider">Ответ:</span>
+              <span class="text-[10px] text-indigo-400">👆 Кликни на слово для добавления в словарь</span>
+            </div>
             <div id="card-back" class="text-lg font-bold text-emerald-400 mt-0.5">оборотень</div>
+          </div>
+          <!-- Full sentence Russian translation -->
+          <div id="card-translation-box" class="hidden text-xs sm:text-sm text-slate-200 bg-emerald-950/30 p-2.5 rounded-lg border border-emerald-800/50">
+            <span class="font-bold text-emerald-400">🇷🇺 Перевод: </span><span id="card-translation"></span>
           </div>
           <div id="card-explanation-box" class="text-xs text-slate-300 bg-slate-950/60 p-3 rounded-lg border border-slate-800/80">
             <span class="font-semibold text-indigo-400">💡 Разбор: </span><span id="card-explanation"></span>
@@ -145,7 +152,6 @@
           <div id="card-example-box" class="text-xs text-slate-300 bg-indigo-950/20 p-3 rounded-lg border border-indigo-900/30">
             <div class="flex items-center justify-between mb-1">
               <span class="font-semibold text-cyan-400">📖 Пример в контексте:</span>
-              <span class="text-[10px] text-indigo-400">👆 Кликни на любое слово, чтобы добавить его в словарь</span>
             </div>
             <div id="card-example" class="italic leading-relaxed"></div>
           </div>

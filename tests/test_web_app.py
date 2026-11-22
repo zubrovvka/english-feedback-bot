@@ -133,4 +133,11 @@ def test_static_assets(client):
     assert res_js.status_code == 200
     assert b"English Feedback" in res_js.data
 
+def test_translate_endpoint(client):
+    res = client.post("/api/translate", json={"text": "strangers"})
+    assert res.status_code == 200
+    data = json.loads(res.data)
+    assert "translation" in data
+
+
 

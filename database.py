@@ -44,6 +44,8 @@ def init_db():
         columns = [row[1] for row in cursor.fetchall()]
         if "user_id" not in columns:
             cursor.execute("ALTER TABLE cards ADD COLUMN user_id INTEGER NOT NULL DEFAULT 0")
+        if "translation" not in columns:
+            cursor.execute("ALTER TABLE cards ADD COLUMN translation TEXT DEFAULT ''")
             
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_cards_user_next ON cards (user_id, next_review)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_cards_user_type ON cards (user_id, type)")
@@ -71,8 +73,8 @@ def add_card(card_data: Dict[str, Any], user_id: int = 0) -> int:
         INSERT INTO cards (
             user_id, type, front, back, explanation, example, transcription,
             pronunciation_text, raw_original, ease_factor, interval,
-            repetition, next_review, lesson_date, created_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            repetition, next_review, lesson_date, created_at, translation
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             user_id,
             card_type,
@@ -88,7 +90,8 @@ def add_card(card_data: Dict[str, Any], user_id: int = 0) -> int:
             0,
             next_review,
             card_data.get('lesson_date', now.strftime("%Y-%m-%d")),
-            now.isoformat()
+            now.isoformat(),
+            card_data.get('translation') or ''
         ))
         card_id = cursor.lastrowid
         conn.commit()
