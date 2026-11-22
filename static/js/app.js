@@ -16,6 +16,7 @@ let allCardsCache = [];
 let hasGeminiKey = false;
 let clozeHintIndex = 0;
 let autoPlayAudio = true;
+let autoPlayDelay = 0;
 
 document.addEventListener("DOMContentLoaded", () => {
   initAutoPlaySetting();
@@ -277,9 +278,11 @@ function renderCard(card, isExtra) {
   document.getElementById("actions-revealed").classList.add("hidden");
 
   if (autoPlayAudio) {
-    setTimeout(() => {
+    if (autoPlayDelay > 0) {
+      setTimeout(() => playAudio(true), autoPlayDelay);
+    } else {
       playAudio(true);
-    }, 150);
+    }
   }
 }
 
@@ -428,9 +431,11 @@ async function loadNextQuiz() {
     `).join("");
 
     if (autoPlayAudio) {
-      setTimeout(() => {
+      if (autoPlayDelay > 0) {
+        setTimeout(() => playQuizAudio(true), autoPlayDelay);
+      } else {
         playQuizAudio(true);
-      }, 150);
+      }
     }
 
   } catch (err) {
@@ -484,12 +489,19 @@ function handleQuizAnswer(selected, btnEl) {
 function initAutoPlaySetting() {
   const stored = localStorage.getItem("autoplay_audio");
   autoPlayAudio = stored === null ? true : stored === "true";
+
+  const storedDelay = localStorage.getItem("autoplay_delay");
+  autoPlayDelay = storedDelay !== null ? parseInt(storedDelay, 10) : 0;
+
   updateAutoPlayUI();
 }
 
 function updateAutoPlayUI() {
   const toggleCheckbox = document.getElementById("cfg-autoplay-audio");
   if (toggleCheckbox) toggleCheckbox.checked = autoPlayAudio;
+
+  const delaySelect = document.getElementById("cfg-autoplay-delay");
+  if (delaySelect) delaySelect.value = autoPlayDelay.toString();
 
   const quickBtn = document.getElementById("btn-quick-autoplay");
   const quickIcon = document.getElementById("quick-autoplay-icon");
@@ -514,6 +526,11 @@ function setAutoPlaySetting(enabled) {
   updateAutoPlayUI();
 }
 
+function setAutoPlayDelay(delayVal) {
+  autoPlayDelay = parseInt(delayVal, 10) || 0;
+  localStorage.setItem("autoplay_delay", autoPlayDelay.toString());
+}
+
 function toggleAutoPlayQuick() {
   setAutoPlaySetting(!autoPlayAudio);
   showToast(autoPlayAudio ? "🔊 Авто-озвучка включена" : "🔇 Авто-озвучка выключена");
@@ -524,10 +541,11 @@ function playAudio(isAuto = false) {
   const btn = document.getElementById("btn-audio");
   if (btn) {
     btn.classList.add("ring-2", "ring-indigo-400", "scale-105");
-    setTimeout(() => btn.classList.remove("ring-2", "ring-indigo-400", "scale-105"), 400);
+    setTimeout(() => btn.classList.remove("ring-2", "ring-indigo-400", "scale-105"), 300);
   }
   const player = document.getElementById("audio-player");
-  player.src = `/api/tts/${currentCard.id}?t=${Date.now()}`;
+  player.src = `/api/tts/${currentCard.id}`;
+  player.currentTime = 0;
   player.play().catch(e => {
     if ('speechSynthesis' in window) {
       try {
@@ -543,7 +561,8 @@ function playAudio(isAuto = false) {
 function playClozeAudio() {
   if (!currentClozeCard) return;
   const player = document.getElementById("audio-player");
-  player.src = `/api/tts/${currentClozeCard.card_id}?t=${Date.now()}`;
+  player.src = `/api/tts/${currentClozeCard.card_id}`;
+  player.currentTime = 0;
   player.play().catch(e => {
     if ('speechSynthesis' in window) {
       try {
@@ -559,7 +578,8 @@ function playClozeAudio() {
 function playQuizAudio(isAuto = false) {
   if (!currentQuizData || !currentQuizData.card_id) return;
   const player = document.getElementById("audio-player");
-  player.src = `/api/tts/${currentQuizData.card_id}?t=${Date.now()}`;
+  player.src = `/api/tts/${currentQuizData.card_id}`;
+  player.currentTime = 0;
   player.play().catch(e => {
     if ('speechSynthesis' in window) {
       try {
