@@ -15,8 +15,10 @@ let currentImageBase64 = null;
 let allCardsCache = [];
 let hasGeminiKey = false;
 let clozeHintIndex = 0;
+let autoPlayAudio = true;
 
 document.addEventListener("DOMContentLoaded", () => {
+  initAutoPlaySetting();
   loadStats();
   loadNextCard();
   loadConfig();
@@ -51,6 +53,8 @@ function switchTab(tabId) {
     else if (currentMode === 'quiz' && !currentQuizData) loadNextQuiz();
   } else if (tabId === 'cards') {
     loadCardsTable();
+  } else if (tabId === 'settings') {
+    updateAutoPlayUI();
   }
 }
 
@@ -245,6 +249,12 @@ function renderCard(card, isExtra) {
   document.getElementById("card-back-container").classList.add("hidden");
   document.getElementById("actions-unrevealed").classList.remove("hidden");
   document.getElementById("actions-revealed").classList.add("hidden");
+
+  if (autoPlayAudio) {
+    setTimeout(() => {
+      playAudio(true);
+    }, 150);
+  }
 }
 
 function revealAnswer() {
@@ -391,6 +401,12 @@ async function loadNextQuiz() {
       </button>
     `).join("");
 
+    if (autoPlayAudio) {
+      setTimeout(() => {
+        playQuizAudio(true);
+      }, 150);
+    }
+
   } catch (err) {
     console.error(err);
   }
@@ -439,7 +455,45 @@ function handleQuizAnswer(selected, btnEl) {
 // ==========================================================
 // 6. AUDIO & SPEECH (TTS + NATIVE SPEECH SYNTHESIS FALLBACK)
 // ==========================================================
-function playAudio() {
+function initAutoPlaySetting() {
+  const stored = localStorage.getItem("autoplay_audio");
+  autoPlayAudio = stored === null ? true : stored === "true";
+  updateAutoPlayUI();
+}
+
+function updateAutoPlayUI() {
+  const toggleCheckbox = document.getElementById("cfg-autoplay-audio");
+  if (toggleCheckbox) toggleCheckbox.checked = autoPlayAudio;
+
+  const quickBtn = document.getElementById("btn-quick-autoplay");
+  const quickIcon = document.getElementById("quick-autoplay-icon");
+  const quickText = document.getElementById("quick-autoplay-text");
+
+  if (quickBtn && quickIcon && quickText) {
+    if (autoPlayAudio) {
+      quickBtn.className = "px-2.5 py-1 rounded-full text-xs font-medium border transition flex items-center space-x-1 border-indigo-500/60 bg-indigo-500/20 text-indigo-300 hover:bg-indigo-500/30";
+      quickIcon.innerText = "🔊";
+      quickText.innerText = "Авто: Вкл";
+    } else {
+      quickBtn.className = "px-2.5 py-1 rounded-full text-xs font-medium border transition flex items-center space-x-1 border-slate-700 bg-slate-800/80 text-slate-400 hover:text-slate-200";
+      quickIcon.innerText = "🔇";
+      quickText.innerText = "Авто: Выкл";
+    }
+  }
+}
+
+function setAutoPlaySetting(enabled) {
+  autoPlayAudio = Boolean(enabled);
+  localStorage.setItem("autoplay_audio", autoPlayAudio ? "true" : "false");
+  updateAutoPlayUI();
+}
+
+function toggleAutoPlayQuick() {
+  setAutoPlaySetting(!autoPlayAudio);
+  showToast(autoPlayAudio ? "🔊 Авто-озвучка включена" : "🔇 Авто-озвучка выключена");
+}
+
+function playAudio(isAuto = false) {
   if (!currentCard) return;
   const btn = document.getElementById("btn-audio");
   if (btn) {
@@ -450,9 +504,12 @@ function playAudio() {
   player.src = `/api/tts/${currentCard.id}?t=${Date.now()}`;
   player.play().catch(e => {
     if ('speechSynthesis' in window) {
-      const u = new SpeechSynthesisUtterance(currentCard.front);
-      u.lang = 'en-US';
-      window.speechSynthesis.speak(u);
+      try {
+        window.speechSynthesis.cancel();
+        const u = new SpeechSynthesisUtterance(currentCard.front);
+        u.lang = 'en-US';
+        window.speechSynthesis.speak(u);
+      } catch (err) {}
     }
   });
 }
@@ -463,22 +520,28 @@ function playClozeAudio() {
   player.src = `/api/tts/${currentClozeCard.card_id}?t=${Date.now()}`;
   player.play().catch(e => {
     if ('speechSynthesis' in window) {
-      const u = new SpeechSynthesisUtterance(currentClozeCard.target);
-      u.lang = 'en-US';
-      window.speechSynthesis.speak(u);
+      try {
+        window.speechSynthesis.cancel();
+        const u = new SpeechSynthesisUtterance(currentClozeCard.target);
+        u.lang = 'en-US';
+        window.speechSynthesis.speak(u);
+      } catch (err) {}
     }
   });
 }
 
-function playQuizAudio() {
+function playQuizAudio(isAuto = false) {
   if (!currentQuizData || !currentQuizData.card_id) return;
   const player = document.getElementById("audio-player");
   player.src = `/api/tts/${currentQuizData.card_id}?t=${Date.now()}`;
   player.play().catch(e => {
     if ('speechSynthesis' in window) {
-      const u = new SpeechSynthesisUtterance(currentQuizData.question);
-      u.lang = 'en-US';
-      window.speechSynthesis.speak(u);
+      try {
+        window.speechSynthesis.cancel();
+        const u = new SpeechSynthesisUtterance(currentQuizData.question);
+        u.lang = 'en-US';
+        window.speechSynthesis.speak(u);
+      } catch (err) {}
     }
   });
 }

@@ -109,10 +109,16 @@
         <!-- Top row: Category Badge & TTS button -->
         <div class="flex items-center justify-between">
           <span id="card-badge" class="px-2.5 py-0.5 rounded text-xs font-semibold uppercase tracking-wider bg-indigo-900/60 text-indigo-300 border border-indigo-700/50">Vocab</span>
-          <button id="btn-audio" onclick="playAudio()" title="Озвучить (горячая клавиша P)" class="p-2 rounded-full bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition flex items-center space-x-1">
-            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.536 8.464a5 5 0 010 7.072m2.828-9.9a9 9 0 010 12.728M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z"/></svg>
-            <span class="text-xs hidden sm:inline">Озвучка</span>
-          </button>
+          <div class="flex items-center space-x-2">
+            <button id="btn-quick-autoplay" onclick="toggleAutoPlayQuick()" title="Авто-озвучка при открытии карточки (вкл/выкл)" class="px-2.5 py-1 rounded-full text-xs font-medium border transition flex items-center space-x-1 border-indigo-500/50 bg-indigo-500/20 text-indigo-300 hover:bg-indigo-500/30">
+              <span id="quick-autoplay-icon">🔊</span>
+              <span id="quick-autoplay-text" class="text-xs">Авто: Вкл</span>
+            </button>
+            <button id="btn-audio" onclick="playAudio()" title="Озвучить (горячая клавиша P)" class="p-2 rounded-full bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition flex items-center space-x-1">
+              <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.536 8.464a5 5 0 010 7.072m2.828-9.9a9 9 0 010 12.728M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z"/></svg>
+              <span class="text-xs hidden sm:inline">Озвучка</span>
+            </button>
+          </div>
         </div>
 
         <!-- Extra Practice Indicator -->
@@ -387,6 +393,20 @@
             <label class="block text-xs font-semibold uppercase tracking-wider text-slate-300 mb-1">Ключ Google Gemini API:</label>
             <input type="password" id="cfg-gemini-key" placeholder="AIzaSy..." class="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-lg text-sm text-white focus:outline-none focus:border-indigo-500">
             <p class="text-[11px] text-slate-500 mt-1">Бесплатный ключ берётся на <a href="https://aistudio.google.com/app/apikey" target="_blank" class="text-indigo-400 underline">aistudio.google.com</a> (до 1500 запросов в день).</p>
+          </div>
+
+          <!-- Auto-play Audio Setting -->
+          <div class="p-3.5 bg-slate-950 border border-slate-800 rounded-xl flex items-center justify-between">
+            <div class="pr-2">
+              <div class="text-sm font-semibold text-white flex items-center space-x-1.5">
+                <span>🔊</span><span>Авто-озвучка при открытии</span>
+              </div>
+              <p class="text-xs text-slate-400 mt-0.5">Воспроизводить звучание слова при переходе на новую карточку или вопрос квиза</p>
+            </div>
+            <label class="relative inline-flex items-center cursor-pointer shrink-0">
+              <input type="checkbox" id="cfg-autoplay-audio" class="sr-only peer" onchange="setAutoPlaySetting(this.checked)">
+              <div class="w-11 h-6 bg-slate-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-600"></div>
+            </label>
           </div>
 
           <div>
