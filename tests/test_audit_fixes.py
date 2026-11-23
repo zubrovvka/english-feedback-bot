@@ -124,3 +124,16 @@ def test_translation_db_cleanup_on_error(test_db, monkeypatch):
     for c in conns:
         with pytest.raises(sqlite3.ProgrammingError):
             c.cursor()  # Cannot operate on closed database
+
+
+def test_russian_tts_filtering(client, test_db, monkeypatch):
+    """Ensure Russian text is not spoken by English TTS voice."""
+    import app as web_app
+    assert web_app.is_mostly_russian("Как сказать правильно: she never talk?") is True
+    assert web_app.is_mostly_russian("She never talks to strangers") is False
+
+    # Attempting to speak pure Russian via /api/tts/speak returns 400
+    res = client.post("/api/tts/speak", json={"text": "Привет как дела"})
+    assert res.status_code == 400
+    assert "Русский текст" in res.get_json()["error"]
+

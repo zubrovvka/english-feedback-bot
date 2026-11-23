@@ -50,6 +50,13 @@ function levenshteinDistance(s1, s2) {
   return d[s1.length][s2.length];
 }
 
+function isMostlyRussian(text) {
+  if (!text) return false;
+  const cyrillic = (text.match(/[а-яА-ЯёЁ]/g) || []).length;
+  const latin = (text.match(/[a-zA-Z]/g) || []).length;
+  return cyrillic > latin;
+}
+
 function updatePinBadgeUI(hasPin) {
   const pinBadge = document.getElementById("cfg-pin-status-badge");
   if (!pinBadge) return;
@@ -431,10 +438,14 @@ function renderCard(card, isExtra) {
   document.getElementById("actions-revealed").classList.add("hidden");
 
   if (autoPlayAudio) {
-    if (autoPlayDelay > 0) {
-      setTimeout(() => playAudio(true), autoPlayDelay);
-    } else {
-      playAudio(true);
+    // Не озвучивать автоматически при открытии, если вопрос на русском языке (например, разбор ошибок)
+    const isRussianQuestion = card.type === 'correction' || isMostlyRussian(card.front);
+    if (!isRussianQuestion) {
+      if (autoPlayDelay > 0) {
+        setTimeout(() => playAudio(true), autoPlayDelay);
+      } else {
+        playAudio(true);
+      }
     }
   }
 }
@@ -444,6 +455,18 @@ function revealAnswer() {
   document.getElementById("card-back-container").classList.remove("hidden");
   document.getElementById("actions-unrevealed").classList.add("hidden");
   document.getElementById("actions-revealed").classList.remove("hidden");
+
+  // Для карточек с русским вопросом (например, разбор ошибок) — после открытия ответа озвучиваем английский ответ!
+  if (autoPlayAudio) {
+    const isRussianQuestion = currentCard.type === 'correction' || isMostlyRussian(currentCard.front);
+    if (isRussianQuestion && currentCard.back && !isMostlyRussian(currentCard.back)) {
+      if (autoPlayDelay > 0) {
+        setTimeout(() => playAudio(false), autoPlayDelay);
+      } else {
+        playAudio(false);
+      }
+    }
+  }
 
   // For antonym cards, pronounce the revealed answer word!
   if (autoPlayAudio && (currentCard.type === 'antonym' || currentCard.front.includes('↔') || currentCard.front.includes('<->'))) {
@@ -618,10 +641,14 @@ async function loadNextQuiz() {
     `).join("");
 
     if (autoPlayAudio) {
-      if (autoPlayDelay > 0) {
-        setTimeout(() => playQuizAudio(true), autoPlayDelay);
-      } else {
-        playQuizAudio(true);
+      // Не озвучивать автоматически русский вопрос квиза
+      const isRussianQuestion = isMostlyRussian(data.question);
+      if (!isRussianQuestion) {
+        if (autoPlayDelay > 0) {
+          setTimeout(() => playQuizAudio(true), autoPlayDelay);
+        } else {
+          playQuizAudio(true);
+        }
       }
     }
 
@@ -726,6 +753,14 @@ function toggleAutoPlayQuick() {
 
 function playAudio(isAuto = false) {
   if (!currentCard) return;
+  const backContainer = document.getElementById("card-back-container");
+  const isAnswerRevealed = backContainer && !backContainer.classList.contains("hidden");
+
+  // Не озвучивать автоматически при открытии карточки, если вопрос на русском (например, разбор ошибок)
+  if (isAuto && !isAnswerRevealed && (currentCard.type === 'correction' || isMostlyRussian(currentCard.front))) {
+    return;
+  }
+
   const btn = document.getElementById("btn-audio");
   if (btn) {
     btn.classList.add("ring-2", "ring-indigo-400", "scale-105");
@@ -738,9 +773,15 @@ function playAudio(isAuto = false) {
     if ('speechSynthesis' in window) {
       try {
         window.speechSynthesis.cancel();
-        const u = new SpeechSynthesisUtterance(currentCard.front);
-        u.lang = 'en-US';
-        window.speechSynthesis.speak(u);
+        const textToSpeak = isAnswerRevealed ? (currentCard.back || currentCard.front) : currentCard.front;
+        if (textToSpeak && !isMostlyRussian(textToSpeak)) {
+          const cleanText = textToSpeak.replace(/[а-яА-ЯёЁ«»—–➔->❌✅💡⭐🔤]+/g, " ").trim();
+          if (cleanText) {
+            const u = new SpeechSynthesisUtterance(cleanText);
+            u.lang = 'en-US';
+            window.speechSynthesis.speak(u);
+          }
+        }
       } catch (err) {}
     }
   });
@@ -765,6 +806,9 @@ function playClozeAudio() {
 
 function playQuizAudio(isAuto = false) {
   if (!currentQuizData || !currentQuizData.card_id) return;
+  // Не озвучивать русские вопросы квиза
+  if (isMostlyRussian(currentQuizData.question)) return;
+
   const player = document.getElementById("audio-player");
   player.src = `/api/tts/${currentQuizData.card_id}`;
   player.currentTime = 0;
@@ -772,9 +816,11 @@ function playQuizAudio(isAuto = false) {
     if ('speechSynthesis' in window) {
       try {
         window.speechSynthesis.cancel();
-        const u = new SpeechSynthesisUtterance(currentQuizData.question);
-        u.lang = 'en-US';
-        window.speechSynthesis.speak(u);
+        if (!isMostlyRussian(currentQuizData.question)) {
+          const u = new SpeechSynthesisUtterance(currentQuizData.question);
+          u.lang = 'en-US';
+          window.speechSynthesis.speak(u);
+        }
       } catch (err) {}
     }
   });

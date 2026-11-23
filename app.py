@@ -17,6 +17,7 @@ if sys.platform == "win32":
     except Exception:
         pass
 
+import re
 from flask import Flask, request, jsonify, render_template, send_file
 import config
 import database as db
@@ -385,6 +386,15 @@ def translate_text_endpoint():
     return jsonify({"translation": translation})
 
 
+def is_mostly_russian(text: str) -> bool:
+    """Checks if string is primarily in Russian/Cyrillic."""
+    if not text:
+        return False
+    cyrillic = len(re.findall(r"[а-яА-ЯёЁ]", text))
+    latin = len(re.findall(r"[a-zA-Z]", text))
+    return cyrillic > latin
+
+
 # -------------------------------------------------------------
 # Text-To-Speech APIs
 # -------------------------------------------------------------
@@ -398,7 +408,21 @@ def play_card_tts(card_id):
     if not card:
         return jsonify({"error": "Карточка не найдена"}), 404
 
-    text = card.get("pronunciation_text") or card.get("back") or card.get("front")
+    # Extract the English text to pronounce. Never pronounce Russian questions (e.g. correction prompts)
+    text = card.get("pronunciation_text") or ""
+    if not text or is_mostly_russian(text):
+        if card.get("back") and not is_mostly_russian(card.get("back")):
+            text = card.get("back")
+        elif card.get("front") and not is_mostly_russian(card.get("front")):
+            text = card.get("front")
+        else:
+            return jsonify({"error": "Нет английского текста для озвучки"}), 400
+
+    # Clean out any stray Cyrillic labels or symbols (e.g. "❌ wrong ➔ ✅ correct")
+    clean_en = re.sub(r"[а-яА-ЯёЁ«»—–➔->❌✅💡⭐🔤]+", " ", text).strip()
+    if clean_en and not is_mostly_russian(clean_en):
+        text = clean_en
+
     try:
         audio_path = run_async(tts_service.generate_speech(text, filename_prefix=f"c_{card_id}"))
         return send_file(str(audio_path), mimetype="audio/mpeg")
@@ -417,6 +441,9 @@ def speak_custom_text():
     text = data.get("text", "").strip()
     if not text:
         return jsonify({"error": "Пустой текст"}), 400
+
+    if is_mostly_russian(text):
+        return jsonify({"error": "Русский текст не озвучивается английским голосом"}), 400
 
     try:
         audio_path = run_async(tts_service.generate_speech(text, filename_prefix="quick"))
