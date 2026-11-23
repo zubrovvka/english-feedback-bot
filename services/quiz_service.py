@@ -24,7 +24,53 @@ def build_quiz_question(user_id: int = 0, category: Optional[str] = None) -> Opt
         return None
 
     target = pool[0]
-    # Filter distractors with unique back and front
+
+    # Special handling for Antonym cards (Variant 1: dedicated antonym quizzing)
+    if target["type"] == "antonym" or "↔" in target["front"] or "<->" in target["front"]:
+        delim = "↔" if "↔" in target["front"] else "<->"
+        parts = [p.strip() for p in target["front"].split(delim)]
+        if len(parts) == 2:
+            if random.random() < 0.5:
+                q_word, a_word = parts[0], parts[1]
+            else:
+                q_word, a_word = parts[1], parts[0]
+
+            question_text = f"Назови антоним к слову: «{q_word}»"
+            correct_answer = a_word
+
+            # Collect distractors from other antonym cards
+            all_antonyms = db.get_any_cards(user_id=user_id, card_type="antonym", limit=30)
+            other_words = []
+            for c in all_antonyms:
+                c_delim = "↔" if "↔" in c["front"] else "<->"
+                c_parts = [p.strip() for p in c["front"].split(c_delim)]
+                for cp in c_parts:
+                    if cp.lower() != q_word.lower() and cp.lower() != a_word.lower():
+                        other_words.append(cp)
+
+            if len(other_words) < 3:
+                for c in pool:
+                    w = c["front"].split()[0].strip()
+                    if w.lower() not in [o.lower() for o in other_words] and w.lower() != q_word.lower():
+                        other_words.append(w)
+
+            random.shuffle(other_words)
+            distractor_words = list(dict.fromkeys(other_words))[:3]
+            options = [correct_answer] + distractor_words
+            random.shuffle(options)
+
+            return {
+                "card_id": target["id"],
+                "type": "antonym",
+                "question": question_text,
+                "transcription": target.get("transcription", ""),
+                "correct_answer": correct_answer,
+                "options": options,
+                "example": f"{parts[0]} ↔ {parts[1]} ({target.get('back', '')})",
+                "explanation": f"Пара антонимов: {parts[0]} ↔ {parts[1]}"
+            }
+
+    # Standard quiz distractor filtering
     distractors = [c for c in pool[1:] if c["back"] != target["back"] and c["front"] != target["front"]]
     random.shuffle(distractors)
     chosen = distractors[:3]
