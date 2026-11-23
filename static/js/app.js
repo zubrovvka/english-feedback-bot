@@ -2,6 +2,14 @@
  * English Feedback & Active Recall Trainer - Client Application
  */
 
+const CARD_TYPES = Object.freeze({
+  VOCAB: 'vocab',
+  CORRECTION: 'correction',
+  GOOD_LANGUAGE: 'good_language',
+  SUGGESTION: 'suggestion',
+  ANTONYM: 'antonym'
+});
+
 // ==========================================================
 // 1. STATE & INITIALIZATION
 // ==========================================================
@@ -17,6 +25,42 @@ let hasGeminiKey = false;
 let clozeHintIndex = 0;
 let autoPlayAudio = true;
 let autoPlayDelay = 0;
+let activeModeAbortController = null;
+
+function abortActiveModeRequest() {
+  if (activeModeAbortController) {
+    try { activeModeAbortController.abort(); } catch (e) {}
+    activeModeAbortController = null;
+  }
+}
+
+function levenshteinDistance(s1, s2) {
+  if (s1 === s2) return 0;
+  if (!s1.length) return s2.length;
+  if (!s2.length) return s1.length;
+  const d = [];
+  for (let i = 0; i <= s1.length; i++) d[i] = [i];
+  for (let j = 0; j <= s2.length; j++) d[0][j] = j;
+  for (let i = 1; i <= s1.length; i++) {
+    for (let j = 1; j <= s2.length; j++) {
+      const cost = s1[i - 1] === s2[j - 1] ? 0 : 1;
+      d[i][j] = Math.min(d[i - 1][j] + 1, d[i][j - 1] + 1, d[i - 1][j - 1] + cost);
+    }
+  }
+  return d[s1.length][s2.length];
+}
+
+function updatePinBadgeUI(hasPin) {
+  const pinBadge = document.getElementById("cfg-pin-status-badge");
+  if (!pinBadge) return;
+  if (hasPin) {
+    pinBadge.innerText = "🔒 PIN активен";
+    pinBadge.className = "text-[10px] px-2 py-0.5 rounded font-bold bg-emerald-900/60 text-emerald-300 border border-emerald-700/50";
+  } else {
+    pinBadge.innerText = "⚠️ Открыт";
+    pinBadge.className = "text-[10px] px-2 py-0.5 rounded font-bold bg-amber-900/60 text-amber-300 border border-amber-700/50";
+  }
+}
 
 document.addEventListener("DOMContentLoaded", () => {
   initAutoPlaySetting();
@@ -102,6 +146,7 @@ function handleCardSwipe() {
 }
 
 function setPracticeMode(mode) {
+  abortActiveModeRequest();
   currentMode = mode;
   
   ['card', 'cloze', 'quiz'].forEach(m => {
@@ -239,11 +284,16 @@ function handleInteractiveWordClick(el) {
 // 3. PRACTICE MODE 1: FLASHCARDS & SRS
 // ==========================================================
 async function loadNextCard(force = false) {
+  abortActiveModeRequest();
+  activeModeAbortController = new AbortController();
+  const signal = activeModeAbortController.signal;
   const url = currentCategory ? `/api/cards/next?category=${currentCategory}` : `/api/cards/next`;
   try {
-    const res = await fetch(url);
+    const res = await fetch(url, { signal });
+    if (signal.aborted || currentMode !== 'card') return;
     if (checkUnauthorized(res)) return;
     const data = await res.json();
+    if (signal.aborted || currentMode !== 'card') return;
 
     if (!data.card) {
       document.getElementById("card-box").classList.add("hidden");
@@ -258,6 +308,7 @@ async function loadNextCard(force = false) {
     currentCard = data.card;
     renderCard(currentCard, data.is_extra);
   } catch (err) {
+    if (err.name === 'AbortError') return;
     console.error(err);
   }
 }
@@ -292,10 +343,12 @@ function renderCard(card, isExtra) {
     const parts = card.front.split(delim).map(s => s.trim());
     const w1 = parts[0] || card.front;
     const w2 = parts[1] || '';
+    const ew1 = escapeHtml(w1);
+    const ew2 = escapeHtml(w2);
 
     frontEl.innerHTML = `
       <div class="flex items-center justify-center space-x-2 text-2xl sm:text-3xl font-extrabold text-white tracking-tight">
-        <span class="interactive-word" data-word="${w1}" onclick="handleInteractiveWordClick(this)">${w1}</span>
+        <span class="interactive-word" data-word="${ew1}" onclick="handleInteractiveWordClick(this)">${ew1}</span>
         <span class="text-purple-400 font-bold mx-2 select-none">↔</span>
         <span class="px-3 py-1 bg-purple-950/80 border-2 border-dashed border-purple-500/70 rounded-xl text-purple-300 font-mono text-xl sm:text-2xl font-bold tracking-widest shadow-inner">? ? ?</span>
       </div>
@@ -315,9 +368,9 @@ function renderCard(card, isExtra) {
 
     backEl.innerHTML = `
       <div class="text-xl sm:text-2xl font-extrabold text-white">
-        <span class="interactive-word text-slate-300" data-word="${w1}" onclick="handleInteractiveWordClick(this)">${w1}</span>
+        <span class="interactive-word text-slate-300" data-word="${ew1}" onclick="handleInteractiveWordClick(this)">${ew1}</span>
         <span class="text-purple-400 font-bold mx-2 select-none">↔</span>
-        <span class="interactive-word text-emerald-400 underline decoration-purple-500 underline-offset-4" data-word="${w2}" onclick="handleInteractiveWordClick(this)">${w2}</span>
+        <span class="interactive-word text-emerald-400 underline decoration-purple-500 underline-offset-4" data-word="${ew2}" onclick="handleInteractiveWordClick(this)">${ew2}</span>
       </div>
     `;
   } else {
@@ -428,12 +481,18 @@ async function rateCard(rating) {
 // 4. PRACTICE MODE 2: CLOZE DELETION (ВСТАВЬ ПРОПУСК)
 // ==========================================================
 async function loadNextCloze() {
+  abortActiveModeRequest();
+  activeModeAbortController = new AbortController();
+  const signal = activeModeAbortController.signal;
   const url = currentCategory ? `/api/cards/cloze?category=${currentCategory}` : `/api/cards/cloze`;
   clozeHintIndex = 0;
   try {
-    const res = await fetch(url);
+    const res = await fetch(url, { signal });
+    if (signal.aborted || currentMode !== 'cloze') return;
     if (checkUnauthorized(res)) return;
     const data = await res.json();
+    if (signal.aborted || currentMode !== 'cloze') return;
+
     if (!data || !data.target) {
       document.getElementById("cloze-sentence").innerText = "Нет карточек для тренировки пропусков.";
       return;
@@ -454,6 +513,7 @@ async function loadNextCloze() {
     document.getElementById("btn-cloze-next").classList.add("hidden");
     document.getElementById("btn-cloze-hint").disabled = false;
   } catch (err) {
+    if (err.name === 'AbortError') return;
     console.error(err);
   }
 }
@@ -471,7 +531,10 @@ function checkClozeAnswer(e) {
   const input = document.getElementById("cloze-input");
   const feedback = document.getElementById("cloze-feedback");
 
-  if (cleanUser === cleanTarget || (cleanTarget.includes(cleanUser) && cleanUser.length >= 4)) {
+  const isMatch = cleanUser === cleanTarget ||
+    (cleanTarget.length >= 4 && levenshteinDistance(cleanUser, cleanTarget) <= 1);
+
+  if (isMatch) {
     input.className = "w-full text-center py-3 px-4 bg-emerald-950/60 border-2 border-emerald-500 text-emerald-300 rounded-xl text-lg font-bold transition";
     feedback.className = "mt-3 p-3 rounded-xl bg-emerald-950/50 border border-emerald-700/60 text-emerald-200 text-xs sm:text-sm text-left";
     feedback.innerHTML = `🎉 <b>Точно в цель!</b> Правильный ответ: <code>${currentClozeCard.target}</code>`;
@@ -518,11 +581,17 @@ function revealClozeHintLetter() {
 // 5. PRACTICE MODE 3: QUIZ 4 CHOICES (ЭКСПРЕСС-КВИЗ)
 // ==========================================================
 async function loadNextQuiz() {
+  abortActiveModeRequest();
+  activeModeAbortController = new AbortController();
+  const signal = activeModeAbortController.signal;
   const url = currentCategory ? `/api/cards/quiz?category=${currentCategory}` : `/api/cards/quiz`;
   try {
-    const res = await fetch(url);
+    const res = await fetch(url, { signal });
+    if (signal.aborted || currentMode !== 'quiz') return;
     if (checkUnauthorized(res)) return;
     const data = await res.json();
+    if (signal.aborted || currentMode !== 'quiz') return;
+
     if (data.error || !data.options) {
       document.getElementById("quiz-question").innerText = "Недостаточно карточек для квиза.";
       return;
@@ -557,6 +626,7 @@ async function loadNextQuiz() {
     }
 
   } catch (err) {
+    if (err.name === 'AbortError') return;
     console.error(err);
   }
 }
@@ -1090,11 +1160,19 @@ function filterCardsTable() {
 async function deleteCardRow(cardId) {
   if (!confirm("Удалить эту карточку?")) return;
   try {
-    await fetch(`/api/cards/${cardId}`, { method: "DELETE" });
+    const res = await fetch(`/api/cards/${cardId}`, { method: "DELETE" });
+    if (checkUnauthorized(res)) return;
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      showToast(data.error || "Ошибка при удалении карточки");
+      return;
+    }
+    showToast("✓ Карточка удалена");
     loadCardsTable();
     loadStats();
   } catch (err) {
     console.error(err);
+    showToast("Ошибка соединения при удалении");
   }
 }
 
@@ -1114,16 +1192,7 @@ async function loadConfig() {
     if (data.tts_voice) {
       document.getElementById("cfg-tts-voice").value = data.tts_voice;
     }
-    const pinBadge = document.getElementById("cfg-pin-status-badge");
-    if (pinBadge) {
-      if (data.has_pin) {
-        pinBadge.innerText = "🔒 PIN активен";
-        pinBadge.className = "text-[10px] px-2 py-0.5 rounded font-bold bg-emerald-900/60 text-emerald-300 border border-emerald-700/50";
-      } else {
-        pinBadge.innerText = "⚠️ Открыт";
-        pinBadge.className = "text-[10px] px-2 py-0.5 rounded font-bold bg-amber-900/60 text-amber-300 border border-amber-700/50";
-      }
-    }
+    updatePinBadgeUI(data.has_pin);
   } catch (err) {
     console.error(err);
   }
@@ -1158,16 +1227,7 @@ async function saveSettings() {
         if (hasGeminiKey) banner.classList.add("hidden");
         else banner.classList.remove("hidden");
       }
-      const pinBadge = document.getElementById("cfg-pin-status-badge");
-      if (pinBadge) {
-        if (data.has_pin) {
-          pinBadge.innerText = "🔒 PIN активен";
-          pinBadge.className = "text-[10px] px-2 py-0.5 rounded font-bold bg-emerald-900/60 text-emerald-300 border border-emerald-700/50";
-        } else {
-          pinBadge.innerText = "⚠️ Открыт";
-          pinBadge.className = "text-[10px] px-2 py-0.5 rounded font-bold bg-amber-900/60 text-amber-300 border border-amber-700/50";
-        }
-      }
+      updatePinBadgeUI(data.has_pin);
       statusEl.innerText = "✓ Настройки успешно сохранены!";
       statusEl.className = "text-xs text-center font-medium mt-2 text-emerald-400";
       statusEl.classList.remove("hidden");

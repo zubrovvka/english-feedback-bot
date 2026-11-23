@@ -22,23 +22,11 @@ ALLOWED_VOICES = {
     "en-GB-RyanNeural"
 }
 
-_rate_limit_lock = threading.Lock()
-_rate_limit_records: Dict[str, List[float]] = {}
-
+import database
 
 def check_rate_limit(key: str, max_requests: int, window_seconds: int = 60) -> bool:
-    """Returns True if request is allowed, False if limit exceeded."""
-    now = time.time()
-    with _rate_limit_lock:
-        timestamps = _rate_limit_records.get(key, [])
-        # Evict timestamps outside the window
-        timestamps = [t for t in timestamps if now - t < window_seconds]
-        if len(timestamps) >= max_requests:
-            _rate_limit_records[key] = timestamps
-            return False
-        timestamps.append(now)
-        _rate_limit_records[key] = timestamps
-        return True
+    """Returns True if request is allowed, False if limit exceeded. Backed by SQLite."""
+    return database.check_rate_limit(key, max_requests, window_seconds)
 
 
 def is_safe_origin(request) -> bool:

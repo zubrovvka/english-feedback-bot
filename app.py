@@ -39,6 +39,20 @@ db.init_db()
 # Security Middleware (Headers, CSRF, Access Control)
 # -------------------------------------------------------------
 
+def run_async(coro):
+    """Safely runs an async coroutine without new event loop overhead (Task 9)."""
+    try:
+        loop = asyncio.get_event_loop()
+    except RuntimeError:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+    if loop.is_running():
+        import concurrent.futures
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+            return pool.submit(asyncio.run, coro).result()
+    return loop.run_until_complete(coro)
+
+
 @app.before_request
 def security_before_request():
     # 1. CSRF validation for state-changing requests
@@ -47,9 +61,12 @@ def security_before_request():
             logger.warning(f"CSRF blocked from Origin: {request.headers.get('Origin')}, Referer: {request.headers.get('Referer')}")
             return jsonify({"error": "Forbidden: Untrusted Origin / CSRF check failed"}), 403
 
-    # 2. Authorization check for non-public API endpoints
-    if request.path.startswith("/api/") and request.path not in ("/api/auth/verify", "/api/config"):
-        if not security.is_authorized(request):
+    # 2. Authorization check for non-public API endpoints (Task 8: unified)
+    if request.path.startswith("/api/"):
+        # Public endpoints: auth verification and GET /api/config
+        if request.path == "/api/auth/verify" or (request.path == "/api/config" and request.method == "GET"):
+            pass
+        elif not security.is_authorized(request):
             return jsonify({"error": "Unauthorized: Access PIN required"}), 401
 
 
@@ -125,9 +142,6 @@ def verify_auth_pin():
 @app.route("/api/config", methods=["GET", "POST"])
 def manage_config():
     if request.method == "POST":
-        if not security.is_authorized(request):
-            return jsonify({"error": "Unauthorized: Access PIN required to modify configuration"}), 401
-
         client_ip = request.remote_addr or "unknown"
         if not security.check_rate_limit(f"cfg_{client_ip}", max_requests=10, window_seconds=60):
             return jsonify({"error": "Слишком много запросов изменения конфигурации. Подождите минуту."}), 429
@@ -231,8 +245,8 @@ def upload_screenshot():
         if not config.GEMINI_API_KEY:
             return jsonify({"error": "GEMINI_API_KEY не задан. Введи свой бесплатный ключ в Настройках ⚙️"}), 400
 
-        # Parse with Gemini Vision
-        parsed_data = asyncio.run(gemini_parser.parse_board_image(temp_path, config.GEMINI_API_KEY))
+        # Parse with Gemini Vision (using run_async)
+        parsed_data = run_async(gemini_parser.parse_board_image(temp_path, config.GEMINI_API_KEY))
 
         # Ingest using card service
         total_added, added_counts = card_service.ingest_parsed_board(parsed_data, user_id=0)
@@ -285,6 +299,8 @@ def get_next_card():
 
 @app.route("/api/cards/<int:card_id>/review", methods=["POST"])
 def review_card(card_id):
+    if card_id < 1:
+        return jsonify({"error": "Некорректный ID карточки"}), 400
     data = request.json or {}
     rating = data.get("rating")
     if rating not in (1, 2, 3):
@@ -336,7 +352,7 @@ def quick_add_word():
     if not translation:
         if config.GEMINI_API_KEY:
             try:
-                info = asyncio.run(gemini_parser.translate_word_with_context(word, sentence, config.GEMINI_API_KEY))
+                info = run_async(gemini_parser.translate_word_with_context(word, sentence, config.GEMINI_API_KEY))
                 translation = info.get("translation") or translation
                 transcription = info.get("transcription") or transcription
                 explanation = info.get("explanation") or explanation
@@ -375,13 +391,16 @@ def translate_text_endpoint():
 
 @app.route("/api/tts/<int:card_id>")
 def play_card_tts(card_id):
+    if card_id < 1:
+        return jsonify({"error": "Некорректный ID карточки"}), 400
+
     card = db.get_card_by_id(card_id, user_id=0)
     if not card:
         return jsonify({"error": "Карточка не найдена"}), 404
 
     text = card.get("pronunciation_text") or card.get("back") or card.get("front")
     try:
-        audio_path = asyncio.run(tts_service.generate_speech(text, filename_prefix=f"c_{card_id}"))
+        audio_path = run_async(tts_service.generate_speech(text, filename_prefix=f"c_{card_id}"))
         return send_file(str(audio_path), mimetype="audio/mpeg")
     except Exception as e:
         logger.error(f"TTS error: {e}")
@@ -400,7 +419,7 @@ def speak_custom_text():
         return jsonify({"error": "Пустой текст"}), 400
 
     try:
-        audio_path = asyncio.run(tts_service.generate_speech(text, filename_prefix="quick"))
+        audio_path = run_async(tts_service.generate_speech(text, filename_prefix="quick"))
         return send_file(str(audio_path), mimetype="audio/mpeg")
     except Exception as e:
         logger.error(f"TTS error: {e}")
@@ -424,15 +443,36 @@ def list_cards():
         card_id = db.add_card(data, user_id=0)
         return jsonify({"success": True, "card_id": card_id})
 
-    limit = int(request.args.get("limit", 500))
+    try:
+        limit = max(1, min(int(request.args.get("limit", 500)), 1000))
+    except (ValueError, TypeError):
+        limit = 500
+
     cards = db.get_all_cards(user_id=0, limit=limit)
     return jsonify({"cards": cards})
 
 
 @app.route("/api/cards/<int:card_id>", methods=["DELETE"])
 def remove_card(card_id):
+    if card_id < 1:
+        return jsonify({"error": "Некорректный ID карточки"}), 400
     success = db.delete_card(card_id, user_id=0)
     return jsonify({"success": success})
+
+
+@app.errorhandler(404)
+def not_found_handler(e):
+    if request.path.startswith("/api/"):
+        return jsonify({"error": "Resource not found"}), 404
+    return render_template("index.html"), 404
+
+
+@app.errorhandler(500)
+def server_error_handler(e):
+    logger.error(f"Internal server error: {e}")
+    if request.path.startswith("/api/"):
+        return jsonify({"error": "Internal server error"}), 500
+    return "Internal server error", 500
 
 
 # -------------------------------------------------------------

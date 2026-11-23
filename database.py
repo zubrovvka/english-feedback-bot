@@ -49,9 +49,54 @@ def init_db():
             
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_cards_user_next ON cards (user_id, next_review)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_cards_user_type ON cards (user_id, type)")
+
+        # Rate limits table for multi-process and persistent rate limiting (Task 10)
+        cursor.execute("""
+        CREATE TABLE IF NOT EXISTS rate_limits (
+            key TEXT NOT NULL,
+            ts REAL NOT NULL
+        )
+        """)
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_rate_limits_key_ts ON rate_limits (key, ts)")
         conn.commit()
     finally:
         conn.close()
+
+def card_exists(front: str, card_type: str, user_id: int = 0) -> bool:
+    """Checks if a card with the same front and type already exists for user (Task 3)."""
+    if not front:
+        return False
+    conn = get_connection()
+    try:
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT 1 FROM cards WHERE user_id = ? AND type = ? AND LOWER(TRIM(front)) = LOWER(TRIM(?)) LIMIT 1",
+            (user_id, card_type, front)
+        )
+        return cursor.fetchone() is not None
+    finally:
+        conn.close()
+
+def check_rate_limit(key: str, max_requests: int, window_seconds: int = 60) -> bool:
+    """Persistent, thread-safe & multi-process rate limiting via SQLite (Task 10)."""
+    import time
+    now = time.time()
+    cutoff = now - window_seconds
+    with _db_lock:
+        conn = get_connection()
+        try:
+            cursor = conn.cursor()
+            cursor.execute("DELETE FROM rate_limits WHERE ts < ?", (cutoff,))
+            cursor.execute("SELECT COUNT(*) FROM rate_limits WHERE key = ? AND ts >= ?", (key, cutoff))
+            row = cursor.fetchone()
+            count = row[0] if row else 0
+            if count >= max_requests:
+                return False
+            cursor.execute("INSERT INTO rate_limits (key, ts) VALUES (?, ?)", (key, now))
+            conn.commit()
+            return True
+        finally:
+            conn.close()
 
 def add_card(card_data: Dict[str, Any], user_id: int = 0) -> int:
     conn = get_connection()

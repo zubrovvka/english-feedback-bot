@@ -111,13 +111,16 @@ def get_or_create_card_translation(card: Dict[str, Any]) -> str:
 
     translation = translate_text(target_text)
     if translation and card_id:
+        conn = None
         try:
             conn = db.get_connection()
             cur = conn.cursor()
             cur.execute("UPDATE cards SET translation = ? WHERE id = ?", (translation, card_id))
             conn.commit()
-            conn.close()
         except Exception as e:
             logger.error(f"Failed to save translation for card {card_id}: {e}")
+        finally:
+            if conn:
+                conn.close()
 
     return translation

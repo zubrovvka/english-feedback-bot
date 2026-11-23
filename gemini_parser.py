@@ -212,8 +212,22 @@ async def translate_word_with_context(word: str, sentence: str = "", api_key: st
             resp = await client.post(url, json=payload)
             if resp.status_code == 200:
                 data = resp.json()
-                text = data["candidates"][0]["content"]["parts"][0]["text"]
-                return json.loads(text)
+                candidates = data.get("candidates") or []
+                if candidates:
+                    parts = candidates[0].get("content", {}).get("parts", [])
+                    if parts and "text" in parts[0]:
+                        raw_text = parts[0]["text"].strip()
+                        match = re.search(r"\{.*\}", raw_text, re.DOTALL)
+                        if match:
+                            parsed = json.loads(match.group(0))
+                            if isinstance(parsed, dict):
+                                return {
+                                    "word": parsed.get("word") or word,
+                                    "translation": parsed.get("translation") or "",
+                                    "transcription": parsed.get("transcription") or "",
+                                    "explanation": parsed.get("explanation") or "",
+                                    "example": parsed.get("example") or sentence
+                                }
     except Exception as e:
         logger.warning(f"Gemini word translation failed: {e}")
 
