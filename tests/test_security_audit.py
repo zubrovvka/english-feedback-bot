@@ -127,3 +127,63 @@ class TestUserSessionsHardening:
     def test_whitelist_configuration(self):
         # Verify whitelist parsing in config
         assert isinstance(config.ALLOWED_USER_IDS, list)
+
+
+# ============================================================================
+# 6. WEB SECURITY, CSRF, CRLF & HEADERS HARDENING
+# ============================================================================
+class TestWebSecurityHardening:
+    @pytest.fixture
+    def client(self, tmp_path, monkeypatch):
+        test_db = tmp_path / "web_sec_test.db"
+        monkeypatch.setattr(db, "DB_PATH", test_db)
+        db.init_db()
+        import app as web_app
+        web_app.app.config["TESTING"] = True
+        with web_app.app.test_client() as client:
+            yield client
+
+    def test_security_headers_present(self, client):
+        res = client.get("/")
+        assert res.status_code == 200
+        assert res.headers.get("X-Content-Type-Options") == "nosniff"
+        assert res.headers.get("X-Frame-Options") == "DENY"
+        assert "default-src" in res.headers.get("Content-Security-Policy", "")
+        assert res.headers.get("Referrer-Policy") == "strict-origin-when-cross-origin"
+
+    def test_csrf_untrusted_origin_blocked(self, tmp_path, monkeypatch):
+        test_db = tmp_path / "web_csrf_test.db"
+        monkeypatch.setattr(db, "DB_PATH", test_db)
+        db.init_db()
+        import app as web_app
+        web_app.app.config["TESTING"] = False  # Enable CSRF check
+        with web_app.app.test_client() as client:
+            res = client.post(
+                "/api/cards/quick-add",
+                json={"word": "test"},
+                headers={"Origin": "https://evil-attacker.com"}
+            )
+            assert res.status_code == 403
+            assert b"CSRF" in res.data or b"Forbidden" in res.data
+
+    def test_crlf_and_invalid_gemini_key_rejected(self, client):
+        # Key containing newline / CRLF
+        res = client.post("/api/config", json={"gemini_api_key": "AIzaSyTest\nATTACKER_ENV=1"})
+        assert res.status_code == 400
+        assert b"\xd0\x9d\xd0\xb5\xd0\xba\xd0\xbe\xd1\x80\xd1\x80\xd0\xb5\xd0\xba\xd1\x82\xd0\xbd\xd1\x8b\xd0\xb9" in res.data or b"Gemini" in res.data
+
+    def test_invalid_tts_voice_rejected(self, client):
+        res = client.post("/api/config", json={"tts_voice": "malicious-voice; rm -rf /"})
+        assert res.status_code == 400
+
+    def test_upload_invalid_magic_bytes_rejected(self, client):
+        # Fake png file containing bash script
+        res = client.post(
+            "/api/upload",
+            data={"file": (io_bytes := __import__("io").BytesIO(b"#!/bin/bash\necho hacked"), "script.png")}
+        )
+        assert res.status_code == 400
+        json_data = res.get_json()
+        assert "error" in json_data
+        assert "Недопустимый" in json_data["error"] or "формат" in json_data["error"].lower()
+

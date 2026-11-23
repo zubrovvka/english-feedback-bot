@@ -156,16 +156,27 @@ async function loadStats() {
   }
 }
 
+function escapeHtml(str) {
+  if (!str) return '';
+  return String(str).replace(/[&<>"']/g, m => ({
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    '"': '&quot;',
+    "'": '&#39;'
+  }[m]));
+}
+
 function renderInteractiveWords(text, contextSentence) {
   if (!text) return '';
-  const context = (contextSentence || text).replace(/"/g, '&quot;');
+  const context = escapeHtml(contextSentence || text);
   const tokens = text.split(/(\s+|[.,!?;:()«»""—–\/\n]+)/);
   return tokens.map(token => {
     if (/^[a-zA-Z][a-zA-Z'-]*[a-zA-Z]$/.test(token) || /^[a-zA-Z]{2,}$/.test(token)) {
-      const escapedToken = token.replace(/"/g, '&quot;');
-      return `<span class="interactive-word" data-word="${escapedToken}" data-sentence="${context}" onclick="handleInteractiveWordClick(this)">${token}</span>`;
+      const escapedToken = escapeHtml(token);
+      return `<span class="interactive-word" data-word="${escapedToken}" data-sentence="${context}" onclick="handleInteractiveWordClick(this)">${escapedToken}</span>`;
     }
-    return token;
+    return escapeHtml(token);
   }).join('');
 }
 
@@ -1001,9 +1012,9 @@ function renderCardsTable(cards) {
 
   tbody.innerHTML = cards.map(c => `
     <tr class="hover:bg-slate-800/40 transition">
-      <td class="py-3 px-4 font-mono text-xs text-indigo-400">${c.type}</td>
-      <td class="py-3 px-4 font-semibold text-white">${c.front}</td>
-      <td class="py-3 px-4 text-slate-300">${c.back}</td>
+      <td class="py-3 px-4 font-mono text-xs text-indigo-400">${escapeHtml(c.type)}</td>
+      <td class="py-3 px-4 font-semibold text-white">${escapeHtml(c.front)}</td>
+      <td class="py-3 px-4 text-slate-300">${escapeHtml(c.back)}</td>
       <td class="py-3 px-4 text-xs text-slate-400">${c.interval} дн. (повт: ${c.repetition})</td>
       <td class="py-3 px-4 text-right space-x-2">
         <button onclick="playCardAudioDirect(${c.id})" class="p-1.5 hover:bg-slate-800 rounded text-slate-400 hover:text-white" title="Послушать">🔊</button>

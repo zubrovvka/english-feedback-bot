@@ -22,16 +22,51 @@ import config
 import database as db
 import gemini_parser
 import tts_service
+import security
 from services import quiz_service, card_service, translation_service
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
-app.config['MAX_CONTENT_LENGTH'] = 32 * 1024 * 1024  # 32MB max upload
+app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16MB max upload
 
 # Initialize database on startup
 db.init_db()
+
+
+# -------------------------------------------------------------
+# Security Middleware (Headers, CSRF, Access Control)
+# -------------------------------------------------------------
+
+@app.before_request
+def security_before_request():
+    # 1. CSRF validation for state-changing requests
+    if not app.config.get("TESTING") and request.method in ("POST", "PUT", "DELETE", "PATCH"):
+        if not security.is_safe_origin(request):
+            logger.warning(f"CSRF blocked from Origin: {request.headers.get('Origin')}, Referer: {request.headers.get('Referer')}")
+            return jsonify({"error": "Forbidden: Untrusted Origin / CSRF check failed"}), 403
+
+    # 2. Authorization check for non-public API endpoints
+    if request.path.startswith("/api/") and request.path not in ("/api/auth/verify", "/api/config"):
+        if not security.is_authorized(request):
+            return jsonify({"error": "Unauthorized: Access PIN required"}), 401
+
+
+@app.after_request
+def set_security_headers(response):
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    response.headers["Permissions-Policy"] = "geolocation=(), microphone=(), camera=()"
+    response.headers["Content-Security-Policy"] = (
+        "default-src 'self' 'unsafe-inline' https:; "
+        "img-src 'self' data: blob: https:; "
+        "media-src 'self' data: blob:; "
+        "connect-src 'self' https:; "
+        "font-src 'self' https: data:;"
+    )
+    return response
 
 
 # -------------------------------------------------------------
@@ -66,15 +101,51 @@ def manifest():
 
 
 # -------------------------------------------------------------
-# Configuration API
+# Authentication & Access Verification API
+# -------------------------------------------------------------
+
+@app.route("/api/auth/verify", methods=["POST"])
+def verify_auth_pin():
+    data = request.json or {}
+    pin = data.get("pin", "").strip()
+    configured_pin = getattr(config, "ACCESS_PIN", "").strip()
+    if not configured_pin or pin == configured_pin:
+        res = jsonify({"success": True})
+        if configured_pin:
+            res.set_cookie("auth_pin", pin, max_age=30 * 86400, httponly=True, samesite="Lax")
+        return res
+    return jsonify({"error": "Неверный PIN-код доступа"}), 401
+
+
+# -------------------------------------------------------------
+# Configuration API (Hardened against CRLF and unauthorized overwrite)
 # -------------------------------------------------------------
 
 @app.route("/api/config", methods=["GET", "POST"])
 def manage_config():
     if request.method == "POST":
+        if not security.is_authorized(request):
+            return jsonify({"error": "Unauthorized: Access PIN required to modify configuration"}), 401
+
+        client_ip = request.remote_addr or "unknown"
+        if not security.check_rate_limit(f"cfg_{client_ip}", max_requests=10, window_seconds=60):
+            return jsonify({"error": "Слишком много запросов изменения конфигурации. Подождите минуту."}), 429
+
         data = request.json or {}
-        new_gemini_key = data.get("gemini_api_key", "").strip()
-        new_voice = data.get("tts_voice", "").strip()
+        raw_key = data.get("gemini_api_key", "").strip()
+        raw_voice = data.get("tts_voice", "").strip()
+        raw_pin = data.get("access_pin", "").strip()
+
+        # Strict validation & CRLF injection protection
+        if raw_key and not security.is_valid_gemini_key(raw_key):
+            return jsonify({"error": "Некорректный формат ключа Gemini API (недопустимые символы)"}), 400
+
+        if raw_voice and raw_voice not in security.ALLOWED_VOICES:
+            return jsonify({"error": "Недопустимый голос TTS"}), 400
+
+        new_gemini_key = security.sanitize_env_string(raw_key)
+        new_voice = security.sanitize_env_string(raw_voice)
+        new_pin = security.sanitize_env_string(raw_pin, max_len=16)
 
         env_path = config.BASE_DIR / ".env"
         lines = []
@@ -84,9 +155,10 @@ def manage_config():
 
         env_vars = {}
         for line in lines:
-            if "=" in line and not line.strip().startswith("#"):
-                k, v = line.strip().split("=", 1)
-                env_vars[k.strip()] = v.strip()
+            line_str = line.strip()
+            if "=" in line_str and not line_str.startswith("#"):
+                k, v = line_str.split("=", 1)
+                env_vars[security.sanitize_env_string(k)] = security.sanitize_env_string(v)
 
         if new_gemini_key:
             env_vars["GEMINI_API_KEY"] = new_gemini_key
@@ -96,15 +168,25 @@ def manage_config():
             env_vars["TTS_VOICE"] = new_voice
             config.TTS_VOICE = new_voice
 
+        if "access_pin" in data:
+            env_vars["ACCESS_PIN"] = new_pin
+            config.ACCESS_PIN = new_pin
+
         with open(env_path, "w", encoding="utf-8") as f:
             for k, v in env_vars.items():
                 f.write(f"{k}={v}\n")
 
-        return jsonify({"success": True, "has_gemini_key": bool(config.GEMINI_API_KEY), "tts_voice": config.TTS_VOICE})
+        return jsonify({
+            "success": True,
+            "has_gemini_key": bool(config.GEMINI_API_KEY),
+            "tts_voice": config.TTS_VOICE,
+            "has_pin": bool(config.ACCESS_PIN)
+        })
 
     return jsonify({
         "has_gemini_key": bool(config.GEMINI_API_KEY),
         "tts_voice": config.TTS_VOICE,
+        "has_pin": bool(config.ACCESS_PIN),
         "available_voices": [
             {"id": "en-US-JennyNeural", "name": "Jenny (US, женский)"},
             {"id": "en-US-GuyNeural", "name": "Guy (US, мужской)"},
@@ -115,25 +197,35 @@ def manage_config():
 
 
 # -------------------------------------------------------------
-# Screenshot OCR Upload API
+# Screenshot OCR Upload API (Hardened with rate limiting & magic bytes)
 # -------------------------------------------------------------
 
 @app.route("/api/upload", methods=["POST"])
 def upload_screenshot():
+    client_ip = request.remote_addr or "unknown"
+    if not security.check_rate_limit(f"upload_{client_ip}", max_requests=15, window_seconds=60):
+        return jsonify({"error": "Слишком много запросов загрузки. Подождите минуту."}), 429
+
     temp_path = config.DATA_DIR / f"temp_{uuid.uuid4().hex}.png"
     try:
+        image_bytes = None
         if 'file' in request.files and request.files['file'].filename:
             file = request.files['file']
-            file.save(str(temp_path))
+            image_bytes = file.read()
         elif request.is_json and 'image_b64' in request.json:
             b64_data = request.json['image_b64']
             if ',' in b64_data:
                 b64_data = b64_data.split(',', 1)[1]
             image_bytes = base64.b64decode(b64_data)
-            with open(temp_path, "wb") as f:
-                f.write(image_bytes)
         else:
             return jsonify({"error": "Файл изображения не передан"}), 400
+
+        # Validate magic bytes for valid image file
+        if not security.is_valid_image_bytes(image_bytes):
+            return jsonify({"error": "Недопустимый формат файла. Разрешены только изображения PNG, JPEG, WEBP."}), 400
+
+        with open(temp_path, "wb") as f:
+            f.write(image_bytes)
 
         if not config.GEMINI_API_KEY:
             return jsonify({"error": "GEMINI_API_KEY не задан. Введи свой бесплатный ключ в Настройках ⚙️"}), 400
@@ -297,6 +389,10 @@ def play_card_tts(card_id):
 
 @app.route("/api/tts/speak", methods=["POST"])
 def speak_custom_text():
+    client_ip = request.remote_addr or "unknown"
+    if not security.check_rate_limit(f"tts_{client_ip}", max_requests=30, window_seconds=60):
+        return jsonify({"error": "Слишком много запросов озвучки. Подождите минуту."}), 429
+
     data = request.json or {}
     text = data.get("text", "").strip()
     if not text:
