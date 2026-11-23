@@ -145,9 +145,58 @@ function setCategory(cat) {
   else if (currentMode === 'quiz') loadNextQuiz();
 }
 
+function checkUnauthorized(res) {
+  if (res && res.status === 401) {
+    const modal = document.getElementById("modal-pin-auth");
+    if (modal) {
+      modal.classList.remove("hidden");
+      setTimeout(() => {
+        const inp = document.getElementById("auth-pin-input");
+        if (inp) inp.focus();
+      }, 100);
+    }
+    return true;
+  }
+  return false;
+}
+
+async function submitPinAuth(e) {
+  if (e) e.preventDefault();
+  const pinInput = document.getElementById("auth-pin-input");
+  const pin = pinInput.value.trim();
+  const errorEl = document.getElementById("auth-pin-error");
+  errorEl.classList.add("hidden");
+
+  try {
+    const res = await fetch("/api/auth/verify", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ pin: pin })
+    });
+    const data = await res.json();
+    if (res.ok && data.success) {
+      document.getElementById("modal-pin-auth").classList.add("hidden");
+      loadStats();
+      if (currentMode === 'card') loadNextCard();
+      else if (currentMode === 'cloze') loadNextCloze();
+      else if (currentMode === 'quiz') loadNextQuiz();
+      loadConfig();
+    } else {
+      errorEl.innerText = data.error || "Неверный PIN-код доступа";
+      errorEl.classList.remove("hidden");
+      pinInput.value = "";
+      pinInput.focus();
+    }
+  } catch (err) {
+    errorEl.innerText = "Ошибка соединения: " + err.message;
+    errorEl.classList.remove("hidden");
+  }
+}
+
 async function loadStats() {
   try {
     const res = await fetch("/api/stats");
+    if (checkUnauthorized(res)) return;
     const data = await res.json();
     document.getElementById("stat-due").innerText = data.due || 0;
     document.getElementById("stat-total").innerText = data.total || 0;
@@ -193,6 +242,7 @@ async function loadNextCard(force = false) {
   const url = currentCategory ? `/api/cards/next?category=${currentCategory}` : `/api/cards/next`;
   try {
     const res = await fetch(url);
+    if (checkUnauthorized(res)) return;
     const data = await res.json();
 
     if (!data.card) {
@@ -382,6 +432,7 @@ async function loadNextCloze() {
   clozeHintIndex = 0;
   try {
     const res = await fetch(url);
+    if (checkUnauthorized(res)) return;
     const data = await res.json();
     if (!data || !data.target) {
       document.getElementById("cloze-sentence").innerText = "Нет карточек для тренировки пропусков.";
@@ -470,6 +521,7 @@ async function loadNextQuiz() {
   const url = currentCategory ? `/api/cards/quiz?category=${currentCategory}` : `/api/cards/quiz`;
   try {
     const res = await fetch(url);
+    if (checkUnauthorized(res)) return;
     const data = await res.json();
     if (data.error || !data.options) {
       document.getElementById("quiz-question").innerText = "Недостаточно карточек для квиза.";
@@ -995,6 +1047,7 @@ async function processImage() {
 async function loadCardsTable() {
   try {
     const res = await fetch("/api/cards");
+    if (checkUnauthorized(res)) return;
     const data = await res.json();
     allCardsCache = data.cards || [];
     renderCardsTable(allCardsCache);

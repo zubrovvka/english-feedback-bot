@@ -524,6 +524,24 @@
     </div>
   </div>
 
+  <!-- ======================================================== -->
+  <!-- MODAL: PIN AUTHENTICATION (ВВОД PIN-КОДА ДОСТУПА)       -->
+  <!-- ======================================================== -->
+  <div id="modal-pin-auth" class="hidden fixed inset-0 z-50 bg-black/85 backdrop-blur-md flex items-center justify-center p-4">
+    <div class="bg-slate-900 border border-slate-800 rounded-2xl p-6 sm:p-8 max-w-sm w-full shadow-2xl text-center">
+      <div class="text-4xl mb-3">🔒</div>
+      <h3 class="text-xl font-bold text-white mb-1">Доступ защищен</h3>
+      <p class="text-xs text-slate-400 mb-5">Введи PIN-код для доступа к базе карточек</p>
+      <form onsubmit="submitPinAuth(event)" class="space-y-4">
+        <input type="password" id="auth-pin-input" inputmode="numeric" placeholder="Введи PIN..." autofocus class="w-full text-center py-3 px-4 bg-slate-950 border-2 border-indigo-500/60 focus:border-indigo-400 rounded-xl text-xl font-bold tracking-widest text-white focus:outline-none focus:ring-2 focus:ring-indigo-500/30 transition shadow-inner">
+        <button type="submit" id="btn-auth-pin" class="w-full py-3 bg-indigo-600 hover:bg-indigo-500 text-white font-semibold rounded-xl text-sm transition shadow-lg shadow-indigo-600/30">
+          Войти в тренажер
+        </button>
+        <div id="auth-pin-error" class="hidden text-xs text-rose-400 font-medium"></div>
+      </form>
+    </div>
+  </div>
+
   <!-- Audio Element for Speech -->
   <audio id="audio-player" class="hidden"></audio>
 
