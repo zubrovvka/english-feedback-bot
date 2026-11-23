@@ -112,7 +112,8 @@ def verify_auth_pin():
     if not configured_pin or pin == configured_pin:
         res = jsonify({"success": True})
         if configured_pin:
-            res.set_cookie("auth_pin", pin, max_age=30 * 86400, httponly=True, samesite="Lax")
+            is_https = request.is_secure or request.headers.get("X-Forwarded-Proto", "").strip().lower() == "https"
+            res.set_cookie("auth_pin", pin, max_age=30 * 86400, httponly=True, samesite="Lax", secure=is_https)
         return res
     return jsonify({"error": "Неверный PIN-код доступа"}), 401
 
@@ -452,10 +453,17 @@ def get_local_ip() -> str:
 def main():
     port = int(os.environ.get("PORT", 5000))
     local_ip = get_local_ip()
+    pin = getattr(config, "ACCESS_PIN", "").strip()
+
     print("\n" + "="*60)
     print(" [+] English Feedback & ReWord Web-Тренажер запущен!")
     print(f" [*] На компьютере:     http://127.0.0.1:{port}")
     print(f" [*] С телефона (Wi-Fi): http://{local_ip}:{port}")
+    if pin:
+        print(" [🔒] Защита PIN-кодом АКТИВНА: доступ с устройств Wi-Fi защищен.")
+    else:
+        print(" [⚠️] ВНИМАНИЕ: ACCESS_PIN не задан (режим открытого доступа в Wi-Fi).")
+        print("     Для защиты в публичных сетях укажите ACCESS_PIN=1234 в .env или в настройках.")
     print("="*60 + "\n")
     app.run(host="0.0.0.0", port=port, debug=False)
 

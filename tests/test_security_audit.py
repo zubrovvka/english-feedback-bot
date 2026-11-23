@@ -187,3 +187,30 @@ class TestWebSecurityHardening:
         assert "error" in json_data
         assert "Недопустимый" in json_data["error"] or "формат" in json_data["error"].lower()
 
+    def test_csrf_sec_fetch_site_cross_site_blocked(self, tmp_path, monkeypatch):
+        import app as web_app
+        web_app.app.config["TESTING"] = False
+        with web_app.app.test_client() as client:
+            res = client.post(
+                "/api/cards/quick-add",
+                json={"word": "test"},
+                headers={"Sec-Fetch-Site": "cross-site"}
+            )
+            assert res.status_code == 403
+
+    def test_cookie_secure_flag_on_https(self, monkeypatch):
+        import config
+        monkeypatch.setattr(config, "ACCESS_PIN", "9999")
+        import app as web_app
+        with web_app.app.test_client() as client:
+            res = client.post(
+                "/api/auth/verify",
+                json={"pin": "9999"},
+                headers={"X-Forwarded-Proto": "https"}
+            )
+            assert res.status_code == 200
+            cookie_headers = res.headers.getlist("Set-Cookie")
+            assert any("Secure" in c for c in cookie_headers)
+            assert any("HttpOnly" in c for c in cookie_headers)
+            assert any("SameSite=Lax" in c for c in cookie_headers)
+

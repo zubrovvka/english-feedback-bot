@@ -42,15 +42,24 @@ def check_rate_limit(key: str, max_requests: int, window_seconds: int = 60) -> b
 
 
 def is_safe_origin(request) -> bool:
-    """Validates Origin and Referer headers against request host to prevent CSRF."""
+    """Validates Origin and Referer headers against request host to prevent CSRF.
+    Also checks modern browser Fetch Metadata (Sec-Fetch-Site).
+    """
+    # 1. Reject cross-site requests signaled by modern browsers via Fetch Metadata
+    fetch_site = request.headers.get("Sec-Fetch-Site", "").strip().lower()
+    if fetch_site == "cross-site":
+        return False
+
     host = request.host.lower()
 
+    # 2. Check Origin header if present
     origin = request.headers.get("Origin")
     if origin:
         parsed = urlparse(origin)
         if parsed.netloc.lower() != host:
             return False
 
+    # 3. Check Referer header if present
     referer = request.headers.get("Referer")
     if referer:
         parsed = urlparse(referer)

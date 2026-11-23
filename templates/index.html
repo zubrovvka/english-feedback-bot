@@ -441,6 +441,15 @@
             </select>
           </div>
 
+          <div>
+            <div class="flex items-center justify-between mb-1">
+              <label class="text-xs font-semibold uppercase tracking-wider text-slate-300">PIN-код доступа (для Wi-Fi / телефона):</label>
+              <span id="cfg-pin-status-badge" class="text-[10px] px-2 py-0.5 rounded font-bold bg-amber-900/50 text-amber-300 border border-amber-700/50">Открыт</span>
+            </div>
+            <input type="password" id="cfg-access-pin" placeholder="Оставь пустым или введи свой PIN (например 1234)" class="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-lg text-sm text-white focus:outline-none focus:border-indigo-500">
+            <p class="text-[11px] text-slate-500 mt-1">Защищает сервер от посторонних устройств в общей Wi-Fi сети. На компьютере доступ всегда открыт.</p>
+          </div>
+
           <div class="pt-2">
             <button onclick="saveSettings()" class="w-full py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white font-medium rounded-lg text-sm transition">
               Сохранить настройки

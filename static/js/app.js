@@ -1061,6 +1061,16 @@ async function loadConfig() {
     if (data.tts_voice) {
       document.getElementById("cfg-tts-voice").value = data.tts_voice;
     }
+    const pinBadge = document.getElementById("cfg-pin-status-badge");
+    if (pinBadge) {
+      if (data.has_pin) {
+        pinBadge.innerText = "🔒 PIN активен";
+        pinBadge.className = "text-[10px] px-2 py-0.5 rounded font-bold bg-emerald-900/60 text-emerald-300 border border-emerald-700/50";
+      } else {
+        pinBadge.innerText = "⚠️ Открыт";
+        pinBadge.className = "text-[10px] px-2 py-0.5 rounded font-bold bg-amber-900/60 text-amber-300 border border-amber-700/50";
+      }
+    }
   } catch (err) {
     console.error(err);
   }
@@ -1069,13 +1079,23 @@ async function loadConfig() {
 async function saveSettings() {
   const geminiKey = document.getElementById("cfg-gemini-key").value.trim();
   const ttsVoice = document.getElementById("cfg-tts-voice").value;
+  const accessPinInput = document.getElementById("cfg-access-pin");
+  const accessPin = accessPinInput ? accessPinInput.value.trim() : "";
   const statusEl = document.getElementById("cfg-status");
 
   try {
+    const payload = {
+      gemini_api_key: geminiKey,
+      tts_voice: ttsVoice
+    };
+    if (accessPinInput) {
+      payload.access_pin = accessPin;
+    }
+
     const res = await fetch("/api/config", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ gemini_api_key: geminiKey, tts_voice: ttsVoice })
+      body: JSON.stringify(payload)
     });
     const data = await res.json();
     if (data.success) {
@@ -1085,13 +1105,27 @@ async function saveSettings() {
         if (hasGeminiKey) banner.classList.add("hidden");
         else banner.classList.remove("hidden");
       }
+      const pinBadge = document.getElementById("cfg-pin-status-badge");
+      if (pinBadge) {
+        if (data.has_pin) {
+          pinBadge.innerText = "🔒 PIN активен";
+          pinBadge.className = "text-[10px] px-2 py-0.5 rounded font-bold bg-emerald-900/60 text-emerald-300 border border-emerald-700/50";
+        } else {
+          pinBadge.innerText = "⚠️ Открыт";
+          pinBadge.className = "text-[10px] px-2 py-0.5 rounded font-bold bg-amber-900/60 text-amber-300 border border-amber-700/50";
+        }
+      }
       statusEl.innerText = "✓ Настройки успешно сохранены!";
       statusEl.className = "text-xs text-center font-medium mt-2 text-emerald-400";
       statusEl.classList.remove("hidden");
       setTimeout(() => statusEl.classList.add("hidden"), 3000);
+    } else {
+      statusEl.innerText = data.error || "Ошибка сохранения";
+      statusEl.className = "text-xs text-center font-medium mt-2 text-rose-400";
+      statusEl.classList.remove("hidden");
     }
   } catch (err) {
-    statusEl.innerText = "Ошибка сохранения";
+    statusEl.innerText = "Ошибка сохранения: " + err.message;
     statusEl.className = "text-xs text-center font-medium mt-2 text-rose-400";
     statusEl.classList.remove("hidden");
   }
