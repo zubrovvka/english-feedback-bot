@@ -1,4 +1,7 @@
 {
+  "name": "tutor-cards",
+  "version": "2.0.0",
+  "description": "TutorCards — Active Recall & Spaced Repetition English Trainer",
   "devDependencies": {
     "tailwindcss": "^4.3.5"
   }

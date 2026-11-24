@@ -119,8 +119,8 @@ def index():
 @app.route("/manifest.json")
 def manifest():
     return jsonify({
-        "name": "English Feedback Trainer",
-        "short_name": "EngTrainer",
+        "name": "TutorCards — Active Recall Trainer",
+        "short_name": "TutorCards",
         "description": "Персональный Active Recall тренажер английского",
         "start_url": "/",
         "display": "standalone",
@@ -569,7 +569,7 @@ def main():
     pin = getattr(config, "ACCESS_PIN", "").strip()
 
     print("\n" + "="*60)
-    print(" [+] English Feedback & ReWord Web-Тренажер запущен!")
+    print(" [+] TutorCards — Персональный Web-тренажер запущен!")
     print(f" [*] На компьютере:     http://127.0.0.1:{port}")
     print(f" [*] С телефона (Wi-Fi): http://{local_ip}:{port}")
     if pin:

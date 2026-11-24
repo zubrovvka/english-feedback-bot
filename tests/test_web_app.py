@@ -21,7 +21,7 @@ def client(tmp_path, monkeypatch):
 def test_index_page(client):
     res = client.get("/")
     assert res.status_code == 200
-    assert b"English Feedback" in res.data
+    assert b"TutorCards" in res.data
 
 def test_get_config(client):
     res = client.get("/api/config")
