@@ -15,12 +15,11 @@ DATA_DIR.mkdir(parents=True, exist_ok=True)
 AUDIO_DIR.mkdir(parents=True, exist_ok=True)
 
 # Environment variables
-TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "").strip()
 ACCESS_PIN = os.getenv("ACCESS_PIN", "").strip()
+DEFAULT_USER_ID = 0
 
-# Whitelist: List of allowed Telegram User IDs (comma-separated, e.g. "12345678,98765432")
-# If empty, a warning is shown, and the bot informs the first user who types /start what their ID is.
+# Optional legacy whitelist (kept for backward compatibility with existing tests)
 raw_allowed = os.getenv("ALLOWED_USER_IDS", "").strip()
 ALLOWED_USER_IDS = [int(uid.strip()) for uid in raw_allowed.split(",") if uid.strip().isdigit()]
 

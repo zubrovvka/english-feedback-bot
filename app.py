@@ -40,18 +40,38 @@ db.init_db()
 # Security Middleware (Headers, CSRF, Access Control)
 # -------------------------------------------------------------
 
-def run_async(coro):
-    """Safely runs an async coroutine without new event loop overhead (Task 9)."""
-    try:
-        loop = asyncio.get_event_loop()
-    except RuntimeError:
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-    if loop.is_running():
-        import concurrent.futures
-        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
-            return pool.submit(asyncio.run, coro).result()
-    return loop.run_until_complete(coro)
+import threading
+
+class AsyncBridge:
+    """Thread-safe persistent event loop bridge for executing async services from Flask."""
+    _instance = None
+    _lock = threading.Lock()
+
+    def __init__(self):
+        self._loop = asyncio.new_event_loop()
+        self._thread = threading.Thread(target=self._run_loop, daemon=True, name="AsyncBridgeWorker")
+        self._thread.start()
+
+    def _run_loop(self):
+        asyncio.set_event_loop(self._loop)
+        self._loop.run_forever()
+
+    def run(self, coro, timeout=60):
+        future = asyncio.run_coroutine_threadsafe(coro, self._loop)
+        return future.result(timeout=timeout)
+
+    @classmethod
+    def get_instance(cls):
+        with cls._lock:
+            if cls._instance is None:
+                cls._instance = cls()
+            return cls._instance
+
+_async_bridge = AsyncBridge.get_instance()
+
+def run_async(coro, timeout=60):
+    """Executes an async coroutine synchronously using the dedicated AsyncBridge loop."""
+    return _async_bridge.run(coro, timeout=timeout)
 
 
 @app.before_request

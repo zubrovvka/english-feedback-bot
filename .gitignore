@@ -17,3 +17,5 @@ ENV/
 # Temporary / OS
 .DS_Store
 Thumbs.db
+*.db-wal
+*.db-shm

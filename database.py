@@ -1,5 +1,6 @@
 import sqlite3
 import threading
+from contextlib import contextmanager
 from datetime import datetime, timedelta
 from typing import List, Dict, Any, Optional
 from config import DB_PATH
@@ -12,11 +13,35 @@ MAX_INTERVAL_DAYS = 365  # Cap interval to 1 year to prevent exponential explosi
 def get_connection():
     conn = sqlite3.connect(DB_PATH, timeout=20.0)
     conn.row_factory = sqlite3.Row
+    try:
+        conn.execute("PRAGMA busy_timeout = 5000")
+    except Exception:
+        pass
     return conn
+
+@contextmanager
+def db_session():
+    """Provides a transactional database cursor with automatic commit/rollback and cleanup."""
+    conn = get_connection()
+    try:
+        cursor = conn.cursor()
+        yield cursor
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
 
 def init_db():
     conn = get_connection()
     try:
+        # Enable WAL mode for high concurrent read/write throughput
+        try:
+            conn.execute("PRAGMA journal_mode = WAL")
+            conn.execute("PRAGMA synchronous = NORMAL")
+        except Exception:
+            pass
         cursor = conn.cursor()
         cursor.execute("""
         CREATE TABLE IF NOT EXISTS cards (
