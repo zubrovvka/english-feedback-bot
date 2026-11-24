@@ -129,6 +129,21 @@ def test_static_assets(client):
     assert res_css.status_code == 200
     assert b"interactive-word" in res_css.data
 
+    # Local Tailwind bundle
+    res_tailwind = client.get("/static/css/output.css")
+    assert res_tailwind.status_code == 200
+
+    # Modular entry point
+    res_main = client.get("/static/js/main.js")
+    assert res_main.status_code == 200
+    assert b"import" in res_main.data
+
+    # ES modules
+    for mod in ["state.js", "api.js", "ui.js", "tts.js", "srs.js", "cloze.js", "quiz.js"]:
+        res_mod = client.get(f"/static/js/modules/{mod}")
+        assert res_mod.status_code == 200, f"Module {mod} returned {res_mod.status_code}"
+
+    # Legacy app.js
     res_js = client.get("/static/js/app.js")
     assert res_js.status_code == 200
     assert b"English Feedback" in res_js.data
