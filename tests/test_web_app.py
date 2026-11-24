@@ -140,4 +140,27 @@ def test_translate_endpoint(client):
     assert "translation" in data
 
 
+def test_pin_access_and_mobile_auth(client, monkeypatch):
+    import config
+    monkeypatch.setattr(config, "ACCESS_PIN", "4321")
+
+    # Mobile request without auth -> 401
+    res = client.get("/api/stats", environ_base={"REMOTE_ADDR": "192.168.1.100"})
+    assert res.status_code == 401
+
+    # Localhost -> allowed even with PIN configured
+    res_local = client.get("/api/stats", environ_base={"REMOTE_ADDR": "127.0.0.1"})
+    assert res_local.status_code == 200
+
+    # Mobile with X-Access-Pin header -> 200
+    res_header = client.get("/api/stats", environ_base={"REMOTE_ADDR": "192.168.1.100"}, headers={"X-Access-Pin": "4321"})
+    assert res_header.status_code == 200
+
+    # Mobile PIN verification -> sets cookie
+    res_verify = client.post("/api/auth/verify", json={"pin": "4321"})
+    assert res_verify.status_code == 200
+    assert "auth_pin" in res_verify.headers.get("Set-Cookie", "")
+
+
+
 

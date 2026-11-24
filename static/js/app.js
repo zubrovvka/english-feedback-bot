@@ -197,8 +197,22 @@ function setCategory(cat) {
   else if (currentMode === 'quiz') loadNextQuiz();
 }
 
+function apiFetch(url, options = {}) {
+  const opts = { ...options };
+  opts.headers = { ...(opts.headers || {}) };
+  const savedPin = localStorage.getItem("auth_pin");
+  if (savedPin && !opts.headers["X-Access-Pin"]) {
+    opts.headers["X-Access-Pin"] = savedPin;
+  }
+  if (!opts.credentials) {
+    opts.credentials = "include";
+  }
+  return fetch(url, opts);
+}
+
 function checkUnauthorized(res) {
   if (res && res.status === 401) {
+    localStorage.removeItem("auth_pin");
     const modal = document.getElementById("modal-pin-auth");
     if (modal) {
       modal.classList.remove("hidden");
@@ -227,6 +241,7 @@ async function submitPinAuth(e) {
     });
     const data = await res.json();
     if (res.ok && data.success) {
+      localStorage.setItem("auth_pin", pin);
       document.getElementById("modal-pin-auth").classList.add("hidden");
       loadStats();
       if (currentMode === 'card') loadNextCard();
@@ -247,7 +262,7 @@ async function submitPinAuth(e) {
 
 async function loadStats() {
   try {
-    const res = await fetch("/api/stats");
+    const res = await apiFetch("/api/stats");
     if (checkUnauthorized(res)) return;
     const data = await res.json();
     document.getElementById("stat-due").innerText = data.due || 0;
@@ -296,7 +311,7 @@ async function loadNextCard(force = false) {
   const signal = activeModeAbortController.signal;
   const url = currentCategory ? `/api/cards/next?category=${currentCategory}` : `/api/cards/next`;
   try {
-    const res = await fetch(url, { signal });
+    const res = await apiFetch(url, { signal });
     if (signal.aborted || currentMode !== 'card') return;
     if (checkUnauthorized(res)) return;
     const data = await res.json();
@@ -488,7 +503,7 @@ function revealAnswer() {
 async function rateCard(rating) {
   if (!currentCard) return;
   try {
-    await fetch(`/api/cards/${currentCard.id}/review`, {
+    await apiFetch(`/api/cards/${currentCard.id}/review`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ rating: rating })
@@ -510,7 +525,7 @@ async function loadNextCloze() {
   const url = currentCategory ? `/api/cards/cloze?category=${currentCategory}` : `/api/cards/cloze`;
   clozeHintIndex = 0;
   try {
-    const res = await fetch(url, { signal });
+    const res = await apiFetch(url, { signal });
     if (signal.aborted || currentMode !== 'cloze') return;
     if (checkUnauthorized(res)) return;
     const data = await res.json();
@@ -563,7 +578,7 @@ function checkClozeAnswer(e) {
     feedback.innerHTML = `🎉 <b>Точно в цель!</b> Правильный ответ: <code>${currentClozeCard.target}</code>`;
     feedback.classList.remove("hidden");
 
-    fetch(`/api/cards/${currentClozeCard.card_id}/review`, {
+    apiFetch(`/api/cards/${currentClozeCard.card_id}/review`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ rating: 3 })
@@ -578,7 +593,7 @@ function checkClozeAnswer(e) {
     feedback.innerHTML = `❌ Правильно: <b class="text-white text-base">${currentClozeCard.target}</b><br><span class="text-xs text-slate-300 mt-1 block">${currentClozeCard.explanation || ''}</span>`;
     feedback.classList.remove("hidden");
 
-    fetch(`/api/cards/${currentClozeCard.card_id}/review`, {
+    apiFetch(`/api/cards/${currentClozeCard.card_id}/review`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ rating: 1 })
@@ -609,7 +624,7 @@ async function loadNextQuiz() {
   const signal = activeModeAbortController.signal;
   const url = currentCategory ? `/api/cards/quiz?category=${currentCategory}` : `/api/cards/quiz`;
   try {
-    const res = await fetch(url, { signal });
+    const res = await apiFetch(url, { signal });
     if (signal.aborted || currentMode !== 'quiz') return;
     if (checkUnauthorized(res)) return;
     const data = await res.json();
@@ -775,7 +790,7 @@ function playAudio(isAuto = false) {
         window.speechSynthesis.cancel();
         const textToSpeak = isAnswerRevealed ? (currentCard.back || currentCard.front) : currentCard.front;
         if (textToSpeak && !isMostlyRussian(textToSpeak)) {
-          const cleanText = textToSpeak.replace(/[а-яА-ЯёЁ«»—–➔->❌✅💡⭐🔤]+/g, " ").trim();
+          const cleanText = textToSpeak.replace(/[а-яА-ЯёЁ«»—–➔\->❌✅💡⭐🔤]+/g, " ").trim();
           if (cleanText) {
             const u = new SpeechSynthesisUtterance(cleanText);
             u.lang = 'en-US';
@@ -865,7 +880,7 @@ async function autoTranslateQuickAdd() {
   const aiBtn = document.getElementById("qa-btn-ai");
   aiBtn.innerText = "⏳...";
   try {
-    const res = await fetch("/api/translate", {
+    const res = await apiFetch("/api/translate", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ text: word, sentence: sentence })
@@ -892,7 +907,7 @@ async function submitQuickAdd() {
   }
 
   try {
-    const res = await fetch("/api/cards/quick-add", {
+    const res = await apiFetch("/api/cards/quick-add", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -1120,12 +1135,12 @@ async function processImage() {
     if (imageBlob) {
       const formData = new FormData();
       formData.append("file", imageBlob, "screenshot.jpg");
-      res = await fetch("/api/upload", {
+      res = await apiFetch("/api/upload", {
         method: "POST",
         body: formData
       });
     } else {
-      res = await fetch("/api/upload", {
+      res = await apiFetch("/api/upload", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ image_b64: currentImageBase64 })
@@ -1162,7 +1177,7 @@ async function processImage() {
 // ==========================================================
 async function loadCardsTable() {
   try {
-    const res = await fetch("/api/cards");
+    const res = await apiFetch("/api/cards");
     if (checkUnauthorized(res)) return;
     const data = await res.json();
     allCardsCache = data.cards || [];
@@ -1206,7 +1221,7 @@ function filterCardsTable() {
 async function deleteCardRow(cardId) {
   if (!confirm("Удалить эту карточку?")) return;
   try {
-    const res = await fetch(`/api/cards/${cardId}`, { method: "DELETE" });
+    const res = await apiFetch(`/api/cards/${cardId}`, { method: "DELETE" });
     if (checkUnauthorized(res)) return;
     if (!res.ok) {
       const data = await res.json().catch(() => ({}));
@@ -1227,7 +1242,7 @@ async function deleteCardRow(cardId) {
 // ==========================================================
 async function loadConfig() {
   try {
-    const res = await fetch("/api/config");
+    const res = await apiFetch("/api/config");
     const data = await res.json();
     hasGeminiKey = Boolean(data.has_gemini_key);
     const banner = document.getElementById("missing-key-banner");
@@ -1260,13 +1275,17 @@ async function saveSettings() {
       payload.access_pin = accessPin;
     }
 
-    const res = await fetch("/api/config", {
+    const res = await apiFetch("/api/config", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload)
     });
     const data = await res.json();
     if (data.success) {
+      if (accessPinInput) {
+        if (accessPin) localStorage.setItem("auth_pin", accessPin);
+        else localStorage.removeItem("auth_pin");
+      }
       hasGeminiKey = Boolean(data.has_gemini_key);
       const banner = document.getElementById("missing-key-banner");
       if (banner) {

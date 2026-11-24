@@ -507,14 +507,40 @@ def server_error_handler(e):
 # -------------------------------------------------------------
 
 def get_local_ip() -> str:
+    candidates = []
     try:
         s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         s.connect(("8.8.8.8", 80))
-        ip = s.getsockname()[0]
+        primary = s.getsockname()[0]
         s.close()
-        return ip
+        if primary and primary != "127.0.0.1":
+            candidates.append(primary)
     except Exception:
-        return "127.0.0.1"
+        pass
+
+    try:
+        hostname = socket.gethostname()
+        for ip in socket.gethostbyname_ex(hostname)[2]:
+            if ip not in candidates and not ip.startswith("127."):
+                candidates.append(ip)
+    except Exception:
+        pass
+
+    def ip_priority(ip: str) -> int:
+        if ip.startswith("192.168.56."):  # VirtualBox
+            return 99
+        if ip.startswith("172.19.") or ip.startswith("172.17."):  # Docker / VPN tun
+            return 90
+        if ip.startswith("192.168."):
+            return 1
+        if ip.startswith("10."):
+            return 2
+        if ip.startswith("172."):
+            return 3
+        return 50
+
+    candidates.sort(key=ip_priority)
+    return candidates[0] if candidates else "127.0.0.1"
 
 
 def main():
