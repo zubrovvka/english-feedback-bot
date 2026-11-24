@@ -59,8 +59,11 @@ export function playAudio(isAuto = false) {
   const backContainer = document.getElementById("card-back-container");
   const isAnswerRevealed = backContainer && !backContainer.classList.contains("hidden");
 
-  // Не озвучивать автоматически при открытии карточки, если вопрос на русском (например, разбор ошибок)
-  if (isAuto && !isAnswerRevealed && (state.currentCard.type === 'correction' || isMostlyRussian(state.currentCard.front))) {
+  // Не озвучивать карточки с русским вопросом (например, разбор ошибок) до открытия ответа
+  if (!isAnswerRevealed && (state.currentCard.type === 'correction' || isMostlyRussian(state.currentCard.front))) {
+    if (!isAuto) {
+      showToast("💡 Сначала нажми «Показать ответ», чтобы услышать правильную фразу");
+    }
     return;
   }
 

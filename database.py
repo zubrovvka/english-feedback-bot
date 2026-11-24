@@ -317,7 +317,9 @@ def get_stats(user_id: int = 0) -> Dict[str, Any]:
         
         return {
             "total": total_cards,
+            "total_cards": total_cards,
             "due": due_cards,
+            "due_cards": due_cards,
             "by_type": by_type
         }
 

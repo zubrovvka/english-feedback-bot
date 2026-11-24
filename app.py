@@ -5,7 +5,13 @@ import sys
 import uuid
 import logging
 import socket
+import mimetypes
 from pathlib import Path
+
+# Ensure correct MIME types for ES modules and CSS on Windows & WSGI
+mimetypes.add_type("application/javascript", ".js")
+mimetypes.add_type("text/javascript", ".mjs")
+mimetypes.add_type("text/css", ".css")
 
 # Fix Windows console UTF-8 encoding
 if sys.platform == "win32":
@@ -48,6 +54,12 @@ class AsyncBridge:
     _lock = threading.Lock()
 
     def __init__(self):
+        self._pid = os.getpid()
+        self._loop = None
+        self._thread = None
+        self._start_loop()
+
+    def _start_loop(self):
         self._loop = asyncio.new_event_loop()
         self._thread = threading.Thread(target=self._run_loop, daemon=True, name="AsyncBridgeWorker")
         self._thread.start()
@@ -57,6 +69,12 @@ class AsyncBridge:
         self._loop.run_forever()
 
     def run(self, coro, timeout=60):
+        # WSGI fork safety: respawn loop if process forked or thread died
+        if os.getpid() != self._pid or not self._thread.is_alive() or not self._loop.is_running():
+            with self._lock:
+                if os.getpid() != self._pid or not self._thread.is_alive() or not self._loop.is_running():
+                    self._pid = os.getpid()
+                    self._start_loop()
         future = asyncio.run_coroutine_threadsafe(coro, self._loop)
         return future.result(timeout=timeout)
 
