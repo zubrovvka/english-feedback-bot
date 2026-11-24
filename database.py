@@ -91,16 +91,12 @@ def card_exists(front: str, card_type: str, user_id: int = 0) -> bool:
     """Checks if a card with the same front and type already exists for user (Task 3)."""
     if not front:
         return False
-    conn = get_connection()
-    try:
-        cursor = conn.cursor()
+    with db_session() as cursor:
         cursor.execute(
             "SELECT 1 FROM cards WHERE user_id = ? AND type = ? AND LOWER(TRIM(front)) = LOWER(TRIM(?)) LIMIT 1",
             (user_id, card_type, front)
         )
         return cursor.fetchone() is not None
-    finally:
-        conn.close()
 
 def check_rate_limit(key: str, max_requests: int, window_seconds: int = 60) -> bool:
     """Persistent, thread-safe & multi-process rate limiting via SQLite (Task 10)."""
@@ -124,9 +120,7 @@ def check_rate_limit(key: str, max_requests: int, window_seconds: int = 60) -> b
             conn.close()
 
 def add_card(card_data: Dict[str, Any], user_id: int = 0) -> int:
-    conn = get_connection()
-    try:
-        cursor = conn.cursor()
+    with db_session() as cursor:
         now = datetime.now()
         next_review = now.isoformat()
         
@@ -163,19 +157,13 @@ def add_card(card_data: Dict[str, Any], user_id: int = 0) -> int:
             now.isoformat(),
             card_data.get('translation') or ''
         ))
-        card_id = cursor.lastrowid
-        conn.commit()
-        return card_id
-    finally:
-        conn.close()
+        return cursor.lastrowid
 
 def get_due_cards(user_id: int = 0, card_type: Optional[str] = None, limit: int = 20) -> List[Dict[str, Any]]:
     if not isinstance(limit, int):
         raise TypeError("Limit must be an integer")
         
-    conn = get_connection()
-    try:
-        cursor = conn.cursor()
+    with db_session() as cursor:
         now_str = datetime.now().isoformat()
         
         if card_type:
@@ -195,17 +183,12 @@ def get_due_cards(user_id: int = 0, card_type: Optional[str] = None, limit: int 
             
         rows = cursor.fetchall()
         return [dict(row) for row in rows]
-    finally:
-        conn.close()
 
 def get_any_cards(user_id: int = 0, card_type: Optional[str] = None, limit: int = 10) -> List[Dict[str, Any]]:
     if not isinstance(limit, int):
         raise TypeError("Limit must be an integer")
         
-    conn = get_connection()
-    try:
-        cursor = conn.cursor()
-        
+    with db_session() as cursor:
         if card_type:
             cursor.execute("""
             SELECT * FROM cards 
@@ -223,21 +206,15 @@ def get_any_cards(user_id: int = 0, card_type: Optional[str] = None, limit: int 
             
         rows = cursor.fetchall()
         return [dict(row) for row in rows]
-    finally:
-        conn.close()
 
 def get_card_by_id(card_id: Any, user_id: Optional[int] = None) -> Optional[Dict[str, Any]]:
-    conn = get_connection()
-    try:
-        cursor = conn.cursor()
+    with db_session() as cursor:
         if user_id is not None:
             cursor.execute("SELECT * FROM cards WHERE id = ? AND user_id = ?", (card_id, user_id))
         else:
             cursor.execute("SELECT * FROM cards WHERE id = ?", (card_id,))
         row = cursor.fetchone()
         return dict(row) if row else None
-    finally:
-        conn.close()
 
 def update_srs_review(card_id: int, rating: Any, user_id: Optional[int] = None) -> Dict[str, Any]:
     """
@@ -322,10 +299,7 @@ def update_srs_review(card_id: int, rating: Any, user_id: Optional[int] = None) 
             conn.close()
 
 def get_stats(user_id: int = 0) -> Dict[str, Any]:
-    conn = get_connection()
-    try:
-        cursor = conn.cursor()
-        
+    with db_session() as cursor:
         cursor.execute("SELECT COUNT(*) FROM cards WHERE user_id = ?", (user_id,))
         total_cards = cursor.fetchone()[0]
         
@@ -346,13 +320,9 @@ def get_stats(user_id: int = 0) -> Dict[str, Any]:
             "due": due_cards,
             "by_type": by_type
         }
-    finally:
-        conn.close()
 
 def get_all_cards(user_id: int = 0, limit: int = 200) -> List[Dict[str, Any]]:
-    conn = get_connection()
-    try:
-        cursor = conn.cursor()
+    with db_session() as cursor:
         cursor.execute("""
         SELECT * FROM cards 
         WHERE user_id = ?
@@ -361,18 +331,11 @@ def get_all_cards(user_id: int = 0, limit: int = 200) -> List[Dict[str, Any]]:
         """, (user_id, limit))
         rows = cursor.fetchall()
         return [dict(row) for row in rows]
-    finally:
-        conn.close()
 
 def delete_card(card_id: int, user_id: Optional[int] = None) -> bool:
-    conn = get_connection()
-    try:
-        cursor = conn.cursor()
+    with db_session() as cursor:
         if user_id is not None:
             cursor.execute("DELETE FROM cards WHERE id = ? AND user_id = ?", (card_id, user_id))
         else:
             cursor.execute("DELETE FROM cards WHERE id = ?", (card_id,))
-        conn.commit()
         return cursor.rowcount > 0
-    finally:
-        conn.close()

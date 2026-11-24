@@ -19,3 +19,6 @@ ENV/
 Thumbs.db
 *.db-wal
 *.db-shm
+
+# Frontend / Node
+node_modules/

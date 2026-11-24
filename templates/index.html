@@ -10,25 +10,7 @@
   <meta name="apple-mobile-web-app-title" content="EngTrainer">
   <meta name="theme-color" content="#4f46e5">
   <link rel="apple-touch-icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🇬🇧</text></svg>">
-  <script src="https://cdn.tailwindcss.com"></script>
-  <script>
-    tailwind.config = {
-      darkMode: 'class',
-      theme: {
-        extend: {
-          colors: {
-            brand: {
-              50: '#eef2ff',
-              100: '#e0e7ff',
-              500: '#6366f1',
-              600: '#4f46e5',
-              700: '#4338ca'
-            }
-          }
-        }
-      }
-    }
-  </script>
+  <link rel="stylesheet" href="/static/css/output.css">
   <link rel="stylesheet" href="/static/css/styles.css">
 </head>
 <body class="bg-slate-950 text-slate-100 min-h-screen flex flex-col font-sans selection:bg-indigo-500 selection:text-white">
@@ -545,6 +527,6 @@
   <!-- Audio Element for Speech -->
   <audio id="audio-player" class="hidden"></audio>
 
-  <script src="/static/js/app.js?v=2.1"></script>
+  <script type="module" src="/static/js/main.js"></script>
 </body>
 </html>
