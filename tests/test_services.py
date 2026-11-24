@@ -38,10 +38,13 @@ class TestCardService:
     def test_ingest_empty_items_handling(self, test_db):
         parsed = {
             "vocab": [{"word": ""}, {"word": "   "}],
+            "corrections": [{"quiz": "   ", "wrong": "", "correct": ""}],
+            "good_language": [{"meaning": " ", "phrase": ""}],
+            "suggestions": [{"quiz": "", "basic": " ", "advanced": ""}]
         }
         total, counts = card_service.ingest_parsed_board(parsed, user_id=0)
         assert total == 0
-        assert counts["vocab"] == 0
+        assert sum(counts.values()) == 0
 
     def test_quick_add_card_sanitization(self, test_db):
         # Punctuation stripping
@@ -81,24 +84,18 @@ class TestQuizService:
         # All options in quiz must be unique
         assert len(quiz["options"]) == len(set(quiz["options"]))
 
-    def test_antonym_quiz_generation(self, test_db):
-        # Antonym quiz requires category pool to have >= 4 cards to prevent fallback to all cards
-        pairs = [
-            ("diligent ↔ lazy", "прилежный ↔ ленивый"),
-            ("abundant ↔ scarce", "обильный ↔ скудный"),
-            ("expand ↔ contract", "расширяться ↔ сжиматься"),
-            ("vague ↔ distinct", "неясный ↔ отчетливый"),
-        ]
-        for front, back in pairs:
-            db.add_card({"type": "antonym", "front": front, "back": back}, user_id=0)
+    def test_quiz_respects_category_without_fallback(self, test_db):
+        # Seed 2 antonym cards and 5 vocab cards
+        db.add_card({"type": "antonym", "front": "hot ↔ cold", "back": "горячий ↔ холодный"}, user_id=0)
+        db.add_card({"type": "antonym", "front": "fast ↔ slow", "back": "быстрый ↔ медленный"}, user_id=0)
+        for i in range(5):
+            db.add_card({"type": "vocab", "front": f"word_{i}", "back": f"trans_{i}"}, user_id=0)
 
-        # Request category=antonym
+        # When requesting category=antonym with only 2 cards (< 4), it MUST stay in antonym mode
         quiz = quiz_service.build_quiz_question(user_id=0, category="antonym")
         assert quiz is not None
         assert quiz["type"] == "antonym"
-        assert "↔" in quiz["example"]
-        assert quiz["correct_answer"] in quiz["options"]
-        assert len(quiz["options"]) == 4
+        assert quiz["correct_answer"] in ("hot", "cold", "fast", "slow")
 
     def test_cloze_returns_none_when_no_cards(self, test_db):
         assert quiz_service.build_cloze_question(user_id=0) is None

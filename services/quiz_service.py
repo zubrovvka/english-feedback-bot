@@ -12,14 +12,11 @@ import database as db
 
 
 def build_quiz_question(user_id: int = 0, category: Optional[str] = None) -> Optional[Dict[str, Any]]:
-    """Generates a 4-choice quiz question with realistic distractors."""
+    """Generates a multiple-choice quiz question with realistic distractors."""
     if category in ("", "all", "None"):
         category = None
 
     pool = db.get_any_cards(user_id=user_id, card_type=category, limit=25)
-    if len(pool) < 4:
-        pool = db.get_any_cards(user_id=user_id, limit=25)
-
     if len(pool) < 2:
         return None
 
@@ -48,7 +45,7 @@ def build_quiz_question(user_id: int = 0, category: Optional[str] = None) -> Opt
                     if cp.lower() != q_word.lower() and cp.lower() != a_word.lower():
                         other_words.append(cp)
 
-            if len(other_words) < 3:
+            if len(other_words) < 3 and not category:
                 for c in pool:
                     w = c["front"].split()[0].strip()
                     if w.lower() not in [o.lower() for o in other_words] and w.lower() != q_word.lower():
