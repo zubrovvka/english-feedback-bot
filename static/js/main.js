@@ -115,6 +115,10 @@ export function submitPinAuth(e) {
       if (state.currentMode === 'card') loadNextCard();
       else if (state.currentMode === 'cloze') loadNextCloze();
       else if (state.currentMode === 'quiz') loadNextQuiz();
+      const cardsTab = document.getElementById("tab-cards");
+      if (cardsTab && !cardsTab.classList.contains("hidden")) {
+        loadCardsTable();
+      }
       loadConfig();
     }
   });
@@ -223,7 +227,8 @@ export async function saveSettings() {
       gemini_api_key: geminiKey,
       tts_voice: ttsVoice
     };
-    if (accessPinInput) {
+    // Only send access_pin when user explicitly typed a new PIN (empty = keep unchanged)
+    if (accessPin) {
       payload.access_pin = accessPin;
     }
 
@@ -232,11 +237,12 @@ export async function saveSettings() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload)
     });
+    if (checkUnauthorized(res)) return;
     const data = await res.json();
-    if (data.success) {
-      if (accessPinInput) {
-        if (accessPin) localStorage.setItem("auth_pin", accessPin);
-        else localStorage.removeItem("auth_pin");
+    if (res.ok && data.success) {
+      if (accessPin) {
+        localStorage.setItem("auth_pin", accessPin);
+        if (accessPinInput) accessPinInput.value = "";
       }
       state.hasGeminiKey = Boolean(data.has_gemini_key);
       const banner = document.getElementById("missing-key-banner");
@@ -258,6 +264,37 @@ export async function saveSettings() {
     statusEl.innerText = "Ошибка сохранения: " + err.message;
     statusEl.className = "text-xs text-center font-medium mt-2 text-rose-400";
     statusEl.classList.remove("hidden");
+  }
+}
+
+export async function clearPinSetting() {
+  if (!confirm("Отключить защиту PIN-кодом? Доступ к приложению станет открытым.")) return;
+  const statusEl = document.getElementById("cfg-status");
+  try {
+    const res = await apiFetch("/api/config", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ clear_pin: true })
+    });
+    if (checkUnauthorized(res)) return;
+    const data = await res.json();
+    if (res.ok && data.success) {
+      localStorage.removeItem("auth_pin");
+      const accessPinInput = document.getElementById("cfg-access-pin");
+      if (accessPinInput) accessPinInput.value = "";
+      updatePinBadgeUI(false);
+      showToast("🔓 Защита PIN-кодом отключена");
+      if (statusEl) {
+        statusEl.innerText = "✓ PIN-код удалён";
+        statusEl.className = "text-xs text-center font-medium mt-2 text-emerald-400";
+        statusEl.classList.remove("hidden");
+        setTimeout(() => statusEl.classList.add("hidden"), 3000);
+      }
+    } else {
+      showToast(data.error || "Не удалось удалить PIN");
+    }
+  } catch (err) {
+    showToast("Ошибка: " + err.message);
   }
 }
 
@@ -410,6 +447,10 @@ export async function processImage() {
       });
     }
 
+    if (checkUnauthorized(res)) {
+      statusBox.classList.add("hidden");
+      return;
+    }
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || "Ошибка распознавания");
 
@@ -423,6 +464,7 @@ export async function processImage() {
       • 💡 Синонимов: <b>${data.counts.suggestion}</b>
     `;
     resetUpload();
+    loadStats();
   } catch (err) {
     statusBox.classList.add("hidden");
     const msg = (err.message && err.message.includes("Failed to fetch"))
@@ -440,6 +482,15 @@ export async function processImage() {
 // ==========================================================
 function setupKeyboardShortcuts() {
   document.addEventListener("keydown", (e) => {
+    const pinModal = document.getElementById("modal-pin-auth");
+    if (pinModal && !pinModal.classList.contains("hidden")) {
+      return;
+    }
+    const qaModal = document.getElementById("modal-quick-add");
+    if (qaModal && !qaModal.classList.contains("hidden")) {
+      if (e.key === "Escape") closeQuickAddModal();
+      return;
+    }
     if (['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement.tagName)) {
       if (e.key === "Escape") closeQuickAddModal();
       return;
@@ -543,4 +594,5 @@ window.processImage = processImage;
 window.filterCardsTable = filterCardsTable;
 window.deleteCardRow = deleteCardRow;
 window.saveSettings = saveSettings;
+window.clearPinSetting = clearPinSetting;
 window.handleFileSelect = handleFileSelect;

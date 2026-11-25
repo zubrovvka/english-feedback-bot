@@ -1,5 +1,6 @@
 import asyncio
 import base64
+import hmac
 import os
 import sys
 import uuid
@@ -160,16 +161,33 @@ def manifest():
 # Authentication & Access Verification API
 # -------------------------------------------------------------
 
+def _is_https_request() -> bool:
+    return request.is_secure or request.headers.get("X-Forwarded-Proto", "").strip().lower() == "https"
+
+
 @app.route("/api/auth/verify", methods=["POST"])
 def verify_auth_pin():
-    data = request.json or {}
-    pin = data.get("pin", "").strip()
+    client_ip = request.remote_addr or "unknown"
+    if not security.check_rate_limit(f"auth_{client_ip}", max_requests=30, window_seconds=60):
+        return jsonify({"error": "Слишком много попыток ввода PIN. Подождите минуту."}), 429
+
+    config.reload_if_env_changed()
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict):
+        data = {}
+    pin = str(data.get("pin") or "").strip()
     configured_pin = getattr(config, "ACCESS_PIN", "").strip()
-    if not configured_pin or pin == configured_pin:
+    if not configured_pin or (pin and hmac.compare_digest(pin, configured_pin)):
         res = jsonify({"success": True})
         if configured_pin:
-            is_https = request.is_secure or request.headers.get("X-Forwarded-Proto", "").strip().lower() == "https"
-            res.set_cookie("auth_pin", pin, max_age=30 * 86400, httponly=True, samesite="Lax", secure=is_https)
+            res.set_cookie(
+                "auth_pin",
+                configured_pin,
+                max_age=30 * 86400,
+                httponly=True,
+                samesite="Lax",
+                secure=_is_https_request()
+            )
         return res
     return jsonify({"error": "Неверный PIN-код доступа"}), 401
 
@@ -180,15 +198,19 @@ def verify_auth_pin():
 
 @app.route("/api/config", methods=["GET", "POST"])
 def manage_config():
+    config.reload_if_env_changed()
     if request.method == "POST":
         client_ip = request.remote_addr or "unknown"
         if not security.check_rate_limit(f"cfg_{client_ip}", max_requests=10, window_seconds=60):
             return jsonify({"error": "Слишком много запросов изменения конфигурации. Подождите минуту."}), 429
 
-        data = request.json or {}
-        raw_key = data.get("gemini_api_key", "").strip()
-        raw_voice = data.get("tts_voice", "").strip()
-        raw_pin = data.get("access_pin", "").strip()
+        data = request.get_json(silent=True)
+        if not isinstance(data, dict):
+            data = {}
+        raw_key = str(data.get("gemini_api_key") or "").strip()
+        raw_voice = str(data.get("tts_voice") or "").strip()
+        raw_pin = str(data.get("access_pin") or "").strip()
+        clear_pin = bool(data.get("clear_pin"))
 
         # Strict validation & CRLF injection protection
         if raw_key and not security.is_valid_gemini_key(raw_key):
@@ -201,41 +223,63 @@ def manage_config():
         new_voice = security.sanitize_env_string(raw_voice)
         new_pin = security.sanitize_env_string(raw_pin, max_len=16)
 
-        env_path = config.BASE_DIR / ".env"
-        lines = []
-        if env_path.exists():
-            with open(env_path, "r", encoding="utf-8") as f:
-                lines = f.readlines()
+        with config._env_lock:
+            env_path = config.ENV_PATH
+            lines = []
+            if env_path.exists():
+                with open(env_path, "r", encoding="utf-8") as f:
+                    lines = f.readlines()
 
-        env_vars = {}
-        for line in lines:
-            line_str = line.strip()
-            if "=" in line_str and not line_str.startswith("#"):
-                k, v = line_str.split("=", 1)
-                env_vars[security.sanitize_env_string(k)] = security.sanitize_env_string(v)
+            env_vars = {}
+            for line in lines:
+                line_str = line.strip()
+                if "=" in line_str and not line_str.startswith("#"):
+                    k, v = line_str.split("=", 1)
+                    env_vars[security.sanitize_env_string(k)] = security.sanitize_env_string(v)
 
-        if new_gemini_key:
-            env_vars["GEMINI_API_KEY"] = new_gemini_key
-            config.GEMINI_API_KEY = new_gemini_key
+            if new_gemini_key:
+                env_vars["GEMINI_API_KEY"] = new_gemini_key
+                config.GEMINI_API_KEY = new_gemini_key
 
-        if new_voice:
-            env_vars["TTS_VOICE"] = new_voice
-            config.TTS_VOICE = new_voice
+            if new_voice:
+                env_vars["TTS_VOICE"] = new_voice
+                config.TTS_VOICE = new_voice
 
-        if "access_pin" in data:
-            env_vars["ACCESS_PIN"] = new_pin
-            config.ACCESS_PIN = new_pin
+            pin_updated = False
+            if clear_pin:
+                env_vars["ACCESS_PIN"] = ""
+                config.ACCESS_PIN = ""
+                pin_updated = True
+            elif new_pin:
+                env_vars["ACCESS_PIN"] = new_pin
+                config.ACCESS_PIN = new_pin
+                pin_updated = True
 
-        with open(env_path, "w", encoding="utf-8") as f:
-            for k, v in env_vars.items():
-                f.write(f"{k}={v}\n")
+            with open(env_path, "w", encoding="utf-8") as f:
+                for k, v in env_vars.items():
+                    f.write(f"{k}={v}\n")
+            config.sync_env_mtime()
 
-        return jsonify({
+        res = jsonify({
             "success": True,
             "has_gemini_key": bool(config.GEMINI_API_KEY),
             "tts_voice": config.TTS_VOICE,
-            "has_pin": bool(config.ACCESS_PIN)
+            "has_pin": bool(config.ACCESS_PIN),
+            "pin_updated": pin_updated
         })
+        if pin_updated:
+            if config.ACCESS_PIN:
+                res.set_cookie(
+                    "auth_pin",
+                    config.ACCESS_PIN,
+                    max_age=30 * 86400,
+                    httponly=True,
+                    samesite="Lax",
+                    secure=_is_https_request()
+                )
+            else:
+                res.delete_cookie("auth_pin")
+        return res
 
     return jsonify({
         "has_gemini_key": bool(config.GEMINI_API_KEY),
@@ -266,11 +310,15 @@ def upload_screenshot():
         if 'file' in request.files and request.files['file'].filename:
             file = request.files['file']
             image_bytes = file.read()
-        elif request.is_json and 'image_b64' in request.json:
-            b64_data = request.json['image_b64']
-            if ',' in b64_data:
-                b64_data = b64_data.split(',', 1)[1]
-            image_bytes = base64.b64decode(b64_data)
+        elif request.is_json:
+            json_body = request.get_json(silent=True) or {}
+            if 'image_b64' in json_body:
+                b64_data = str(json_body['image_b64'] or '')
+                if ',' in b64_data:
+                    b64_data = b64_data.split(',', 1)[1]
+                image_bytes = base64.b64decode(b64_data)
+            else:
+                return jsonify({"error": "Файл изображения не передан"}), 400
         else:
             return jsonify({"error": "Файл изображения не передан"}), 400
 
@@ -281,6 +329,7 @@ def upload_screenshot():
         with open(temp_path, "wb") as f:
             f.write(image_bytes)
 
+        config.reload_if_env_changed()
         if not config.GEMINI_API_KEY:
             return jsonify({"error": "GEMINI_API_KEY не задан. Введи свой бесплатный ключ в Настройках ⚙️"}), 400
 
@@ -340,8 +389,8 @@ def get_next_card():
 def review_card(card_id):
     if card_id < 1:
         return jsonify({"error": "Некорректный ID карточки"}), 400
-    data = request.json or {}
-    rating = data.get("rating")
+    data = request.get_json(silent=True) or {}
+    rating = data.get("rating") if isinstance(data, dict) else None
     if rating not in (1, 2, 3):
         return jsonify({"error": "Рейтинг должен быть 1, 2 или 3"}), 400
 
@@ -377,12 +426,15 @@ def get_quiz_question():
 
 @app.route("/api/cards/quick-add", methods=["POST"])
 def quick_add_word():
-    data = request.json or {}
-    word = data.get("word", "").strip()
-    sentence = data.get("sentence", "").strip()
-    translation = data.get("translation", "").strip()
-    transcription = data.get("transcription", "").strip()
-    explanation = data.get("explanation", "").strip()
+    config.reload_if_env_changed()
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict):
+        data = {}
+    word = str(data.get("word") or "").strip()
+    sentence = str(data.get("sentence") or "").strip()
+    translation = str(data.get("translation") or "").strip()
+    transcription = str(data.get("transcription") or "").strip()
+    explanation = str(data.get("explanation") or "").strip()
 
     if not word:
         return jsonify({"error": "Слово не указано"}), 400
@@ -416,8 +468,10 @@ def quick_add_word():
 
 @app.route("/api/translate", methods=["POST"])
 def translate_text_endpoint():
-    data = request.json or {}
-    text = data.get("text", "").strip()
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict):
+        data = {}
+    text = str(data.get("text") or "").strip()
     if not text:
         return jsonify({"translation": ""})
     translation = translation_service.translate_text(text)
@@ -457,10 +511,12 @@ def play_card_tts(card_id):
             return jsonify({"error": "Нет английского текста для озвучки"}), 400
 
     # Clean out any stray Cyrillic labels or symbols (e.g. "❌ wrong ➔ ✅ correct")
-    clean_en = re.sub(r"[а-яА-ЯёЁ«»—–➔->❌✅💡⭐🔤]+", " ", text).strip()
+    clean_en = re.sub(r"[а-яА-ЯёЁ«»—–➔\->❌✅💡⭐🔤]+", " ", text)
+    clean_en = re.sub(r"\s+", " ", clean_en).strip()
     if clean_en and not is_mostly_russian(clean_en):
         text = clean_en
 
+    config.reload_if_env_changed()
     try:
         audio_path = run_async(tts_service.generate_speech(text, filename_prefix=f"c_{card_id}"))
         return send_file(str(audio_path), mimetype="audio/mpeg")
@@ -475,14 +531,17 @@ def speak_custom_text():
     if not security.check_rate_limit(f"tts_{client_ip}", max_requests=30, window_seconds=60):
         return jsonify({"error": "Слишком много запросов озвучки. Подождите минуту."}), 429
 
-    data = request.json or {}
-    text = data.get("text", "").strip()
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict):
+        data = {}
+    text = str(data.get("text") or "").strip()
     if not text:
         return jsonify({"error": "Пустой текст"}), 400
 
     if is_mostly_russian(text):
         return jsonify({"error": "Русский текст не озвучивается английским голосом"}), 400
 
+    config.reload_if_env_changed()
     try:
         audio_path = run_async(tts_service.generate_speech(text, filename_prefix="quick"))
         return send_file(str(audio_path), mimetype="audio/mpeg")
@@ -504,7 +563,9 @@ def get_stats():
 @app.route("/api/cards", methods=["GET", "POST"])
 def list_cards():
     if request.method == "POST":
-        data = request.json or {}
+        data = request.get_json(silent=True)
+        if not isinstance(data, dict):
+            return jsonify({"error": "Некорректный формат JSON"}), 400
         card_id = db.add_card(data, user_id=0)
         return jsonify({"success": True, "card_id": card_id})
 

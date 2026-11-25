@@ -170,7 +170,7 @@ export function renderCard(card, isExtra) {
     const isRussianQuestion = card.type === 'correction' || isMostlyRussian(card.front);
     if (!isRussianQuestion) {
       if (state.autoPlayDelay > 0) {
-        setTimeout(() => playAudio(true), state.autoPlayDelay);
+        state.autoPlayTimer = setTimeout(() => playAudio(true), state.autoPlayDelay);
       } else {
         playAudio(true);
       }
@@ -189,7 +189,7 @@ export function revealAnswer() {
     const isRussianQuestion = state.currentCard.type === 'correction' || isMostlyRussian(state.currentCard.front);
     if (isRussianQuestion && state.currentCard.back && !isMostlyRussian(state.currentCard.back)) {
       if (state.autoPlayDelay > 0) {
-        setTimeout(() => playAudio(false), state.autoPlayDelay);
+        state.autoPlayTimer = setTimeout(() => playAudio(false), state.autoPlayDelay);
       } else {
         playAudio(false);
       }
@@ -200,7 +200,7 @@ export function revealAnswer() {
   if (state.autoPlayAudio && (state.currentCard.type === 'antonym' || state.currentCard.front.includes('↔') || state.currentCard.front.includes('<->'))) {
     const delim = state.currentCard.front.includes('↔') ? '↔' : '<->';
     const parts = state.currentCard.front.split(delim).map(s => s.trim());
-    if (parts.length >= 2 && parts[1]) {
+    if (parts.length >= 2 && parts[1] && !isMostlyRussian(parts[1])) {
       if ('speechSynthesis' in window) {
         try {
           window.speechSynthesis.cancel();
@@ -216,11 +216,13 @@ export function revealAnswer() {
 export async function rateCard(rating) {
   if (!state.currentCard) return;
   try {
-    await apiFetch(`/api/cards/${state.currentCard.id}/review`, {
+    const res = await apiFetch(`/api/cards/${state.currentCard.id}/review`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ rating: rating })
     });
+    if (checkUnauthorized(res)) return;
+    if (!res.ok) return;
     loadStats();
     loadNextCard();
   } catch (err) {

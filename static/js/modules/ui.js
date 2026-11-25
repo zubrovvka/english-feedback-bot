@@ -40,13 +40,25 @@ export function escapeHtml(str) {
 
 export function updatePinBadgeUI(hasPin) {
   const pinBadge = document.getElementById("cfg-pin-status-badge");
-  if (!pinBadge) return;
-  if (hasPin) {
-    pinBadge.innerText = "🔒 PIN активен";
-    pinBadge.className = "text-[10px] px-2 py-0.5 rounded font-bold bg-emerald-900/60 text-emerald-300 border border-emerald-700/50";
-  } else {
-    pinBadge.innerText = "⚠️ Открыт";
-    pinBadge.className = "text-[10px] px-2 py-0.5 rounded font-bold bg-amber-900/60 text-amber-300 border border-amber-700/50";
+  const clearBtn = document.getElementById("btn-clear-pin");
+  const pinInput = document.getElementById("cfg-access-pin");
+  if (pinBadge) {
+    if (hasPin) {
+      pinBadge.innerText = "🔒 PIN активен";
+      pinBadge.className = "text-[10px] px-2 py-0.5 rounded font-bold bg-emerald-900/60 text-emerald-300 border border-emerald-700/50";
+    } else {
+      pinBadge.innerText = "⚠️ Открыт";
+      pinBadge.className = "text-[10px] px-2 py-0.5 rounded font-bold bg-amber-900/60 text-amber-300 border border-amber-700/50";
+    }
+  }
+  if (clearBtn) {
+    if (hasPin) clearBtn.classList.remove("hidden");
+    else clearBtn.classList.add("hidden");
+  }
+  if (pinInput) {
+    pinInput.placeholder = hasPin
+      ? "PIN активен — введи новый или оставь пустым"
+      : "Придумай PIN (например 2882)";
   }
 }
 
@@ -107,6 +119,8 @@ export async function autoTranslateQuickAdd() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ text: word, sentence: sentence })
     });
+    if (checkUnauthorized(res)) return;
+    if (!res.ok) return;
     const data = await res.json();
     if (data.translation) {
       document.getElementById("qa-translation").value = data.translation;
@@ -138,11 +152,14 @@ export async function submitQuickAdd(onAdded) {
         sentence: example
       })
     });
+    if (checkUnauthorized(res)) return;
     const data = await res.json();
-    if (data.success) {
+    if (res.ok && data.success) {
       closeQuickAddModal();
       showToast(`Слово "${word}" добавлено в тренажер!`);
       if (onAdded) onAdded();
+    } else if (!res.ok) {
+      alert(data.error || "Ошибка при добавлении карточки");
     }
   } catch (err) {
     alert("Ошибка при добавлении: " + err.message);

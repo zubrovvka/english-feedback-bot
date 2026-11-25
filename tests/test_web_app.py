@@ -179,6 +179,121 @@ def test_pin_access_and_mobile_auth(client, monkeypatch):
     assert res_verify.status_code == 200
     assert "auth_pin" in res_verify.headers.get("Set-Cookie", "")
 
+    # Clear cookies so next checks test unauthenticated proxy/malformed requests
+    client.delete_cookie("auth_pin")
+
+    # Loopback behind reverse proxy (X-Forwarded-For) MUST require PIN
+    res_proxy = client.get(
+        "/api/stats",
+        environ_base={"REMOTE_ADDR": "127.0.0.1"},
+        headers={"X-Forwarded-For": "203.0.113.50"}
+    )
+    assert res_proxy.status_code == 401
+
+    # Malformed JSON with PIN active must fail cleanly with 401 (no 500 AttributeError)
+    res_bad_json = client.post(
+        "/api/cards/quick-add",
+        data="{not-json",
+        content_type="application/json",
+        environ_base={"REMOTE_ADDR": "192.168.1.100"}
+    )
+    assert res_bad_json.status_code == 401
+
+
+def test_config_pin_preservation_and_env_reload(client, tmp_path, monkeypatch):
+    import config
+    env_file = tmp_path / ".env"
+    env_file.write_text("ACCESS_PIN=2882\nTTS_VOICE=en-US-JennyNeural\n", encoding="utf-8")
+    monkeypatch.setattr(config, "ENV_PATH", env_file)
+    monkeypatch.setattr(config, "_last_env_mtime_ns", None)
+    monkeypatch.setattr(config, "ACCESS_PIN", "2882")
+    monkeypatch.setattr(config, "TTS_VOICE", "en-US-JennyNeural")
+    config.sync_env_mtime()
+
+    # 1. Saving TTS voice with empty/missing access_pin MUST preserve ACCESS_PIN
+    res = client.post(
+        "/api/config",
+        json={"tts_voice": "en-GB-SoniaNeural", "access_pin": ""},
+        environ_base={"REMOTE_ADDR": "192.168.1.100"},
+        headers={"X-Access-Pin": "2882"}
+    )
+    assert res.status_code == 200
+    data = res.get_json()
+    assert data["has_pin"] is True
+    assert config.ACCESS_PIN == "2882"
+    assert config.TTS_VOICE == "en-GB-SoniaNeural"
+
+    # 2. Updating PIN updates config + Set-Cookie
+    res2 = client.post(
+        "/api/config",
+        json={"access_pin": "9876"},
+        environ_base={"REMOTE_ADDR": "192.168.1.100"},
+        headers={"X-Access-Pin": "2882"}
+    )
+    assert res2.status_code == 200
+    assert config.ACCESS_PIN == "9876"
+    assert "auth_pin=9876" in res2.headers.get("Set-Cookie", "")
+
+    # 3. External .env edit (simulating another WSGI worker) is picked up automatically
+    import time
+    time.sleep(0.02)
+    env_file.write_text("ACCESS_PIN=5555\nTTS_VOICE=en-GB-RyanNeural\n", encoding="utf-8")
+    res_old = client.get("/api/stats", environ_base={"REMOTE_ADDR": "192.168.1.100"}, headers={"X-Access-Pin": "9876"})
+    assert res_old.status_code == 401
+    res_new = client.get("/api/stats", environ_base={"REMOTE_ADDR": "192.168.1.100"}, headers={"X-Access-Pin": "5555"})
+    assert res_new.status_code == 200
+
+    # 4. Explicit clear_pin disables PIN protection
+    res3 = client.post(
+        "/api/config",
+        json={"clear_pin": True},
+        environ_base={"REMOTE_ADDR": "192.168.1.100"},
+        headers={"X-Access-Pin": "5555"}
+    )
+    assert res3.status_code == 200
+    assert res3.get_json()["has_pin"] is False
+    assert config.ACCESS_PIN == ""
+
+
+def test_tts_card_endpoint_regex_and_dynamic_voice(client, tmp_path, monkeypatch):
+    import config
+    import tts_service
+    monkeypatch.setattr(config, "AUDIO_DIR", tmp_path)
+
+    cid = db.add_card({
+        "type": "correction",
+        "front": "Как сказать правильно: she go?",
+        "back": "she goes",
+        "pronunciation_text": "❌ she go ➔ ✅ she goes"
+    }, user_id=0)
+
+    called_voices = []
+    async def fake_generate(text, filename_prefix="card"):
+        called_voices.append((text, config.TTS_VOICE))
+        p = tmp_path / f"{filename_prefix}_{config.TTS_VOICE}.mp3"
+        p.write_bytes(b"ID3test")
+        return p
+
+    monkeypatch.setattr(tts_service, "generate_speech", fake_generate)
+    res = client.get(f"/api/tts/{cid}")
+    assert res.status_code == 200
+    assert called_voices[0][0] == "she go she goes"
+
+
+def test_quiz_distractors_are_unique(test_db):
+    from services import quiz_service
+    # Add 4 cards where 2 have identical 'back' values
+    db.add_card({"type": "vocab", "front": "a1", "back": "same_meaning"}, user_id=0)
+    db.add_card({"type": "vocab", "front": "a2", "back": "same_meaning"}, user_id=0)
+    db.add_card({"type": "vocab", "front": "a3", "back": "other_1"}, user_id=0)
+    db.add_card({"type": "vocab", "front": "a4", "back": "other_2"}, user_id=0)
+
+    for _ in range(10):
+        q = quiz_service.build_quiz_question(user_id=0)
+        assert q is not None
+        assert len(q["options"]) == len(set(q["options"]))
+
+
 
 
 

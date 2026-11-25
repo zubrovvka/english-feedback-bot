@@ -111,8 +111,8 @@
 
         <!-- Question (Front) -->
         <div class="my-auto text-center py-4">
-          <h2 id="card-front" class="text-2xl sm:text-3xl font-extrabold text-white tracking-tight mb-2">werewolf</h2>
-          <p id="card-transcription" class="text-slate-400 font-mono text-sm">/ˈwɪəwʊlf/</p>
+          <h2 id="card-front" class="text-2xl sm:text-3xl font-extrabold text-white tracking-tight mb-2">Загрузка...</h2>
+          <p id="card-transcription" class="text-slate-400 font-mono text-sm hidden"></p>
           <p id="card-prompt" class="text-slate-500 text-xs mt-3">Вспомни перевод и нажми «Показать ответ»</p>
         </div>
 
@@ -428,8 +428,13 @@
               <label class="text-xs font-semibold uppercase tracking-wider text-slate-300">PIN-код доступа (для Wi-Fi / телефона):</label>
               <span id="cfg-pin-status-badge" class="text-[10px] px-2 py-0.5 rounded font-bold bg-amber-900/50 text-amber-300 border border-amber-700/50">Открыт</span>
             </div>
-            <input type="password" id="cfg-access-pin" placeholder="Оставь пустым или введи свой PIN (например 1234)" class="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-lg text-sm text-white focus:outline-none focus:border-indigo-500">
-            <p class="text-[11px] text-slate-500 mt-1">Защищает сервер от посторонних устройств в общей Wi-Fi сети. На компьютере доступ всегда открыт.</p>
+            <div class="flex items-center space-x-2">
+              <input type="password" id="cfg-access-pin" placeholder="Введи новый PIN (пусто = не менять)" class="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-lg text-sm text-white focus:outline-none focus:border-indigo-500">
+              <button type="button" id="btn-clear-pin" onclick="clearPinSetting()" class="hidden shrink-0 px-3 py-2 bg-rose-950/50 hover:bg-rose-900/80 border border-rose-800/60 text-rose-200 rounded-lg text-xs font-medium transition">
+                Убрать PIN
+              </button>
+            </div>
+            <p class="text-[11px] text-slate-500 mt-1">Защищает сервер от посторонних устройств. На локальном компьютере (localhost) вход открыт без PIN.</p>
           </div>
 
           <div class="pt-2">

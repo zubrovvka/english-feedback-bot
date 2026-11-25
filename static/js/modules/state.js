@@ -16,12 +16,22 @@ export const state = {
   autoPlayAudio: true,
   autoPlayDelay: 0,
   activeModeAbortController: null,
+  autoPlayTimer: null,
+  quizNextTimer: null,
 };
 
 export function abortActiveModeRequest() {
   if (state.activeModeAbortController) {
     try { state.activeModeAbortController.abort(); } catch (e) {}
     state.activeModeAbortController = null;
+  }
+  if (state.autoPlayTimer) {
+    clearTimeout(state.autoPlayTimer);
+    state.autoPlayTimer = null;
+  }
+  if (state.quizNextTimer) {
+    clearTimeout(state.quizNextTimer);
+    state.quizNextTimer = null;
   }
 }
 

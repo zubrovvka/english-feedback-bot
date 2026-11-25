@@ -67,12 +67,18 @@ def build_quiz_question(user_id: int = 0, category: Optional[str] = None) -> Opt
                 "explanation": f"Пара антонимов: {parts[0]} ↔ {parts[1]}"
             }
 
-    # Standard quiz distractor filtering
-    distractors = [c for c in pool[1:] if c["back"] != target["back"] and c["front"] != target["front"]]
-    random.shuffle(distractors)
-    chosen = distractors[:3]
+    # Standard quiz distractor filtering (deduplicated by answer text)
+    seen_backs = {target["back"]}
+    unique_distractors = []
+    for c in pool[1:]:
+        b = c["back"]
+        if c["front"] != target["front"] and b not in seen_backs:
+            seen_backs.add(b)
+            unique_distractors.append(b)
+    random.shuffle(unique_distractors)
+    chosen_backs = unique_distractors[:3]
 
-    options = [target["back"]] + [d["back"] for d in chosen]
+    options = [target["back"]] + chosen_backs
     random.shuffle(options)
 
     return {

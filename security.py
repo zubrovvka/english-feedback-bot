@@ -8,6 +8,7 @@ Covers:
 5. Image header magic bytes validation
 """
 
+import hmac
 import time
 import re
 import threading
@@ -90,30 +91,34 @@ def is_valid_image_bytes(data: bytes) -> bool:
 
 
 def is_authorized(request) -> bool:
-    """Checks if request is authorized by ACCESS_PIN or loopback."""
+    """Checks if request is authorized by ACCESS_PIN or direct loopback."""
+    config.reload_if_env_changed()
     pin = getattr(config, "ACCESS_PIN", "").strip()
     if not pin:
         return True  # No PIN configured -> open access
 
-    # Check loopback
-    remote_ip = request.remote_addr or ""
-    if remote_ip in ("127.0.0.1", "::1", "localhost"):
-        # Localhost is trusted by default
+    # Check direct loopback (ignore loopback bypass if request arrived via reverse proxy)
+    remote_ip = (request.remote_addr or "").strip()
+    has_forwarded = bool(request.headers.get("X-Forwarded-For", "").strip())
+    if not has_forwarded and remote_ip in ("127.0.0.1", "::1", "::ffff:127.0.0.1", "localhost"):
+        # Direct localhost connection is trusted by default
         return True
 
     # Check custom header
-    req_pin = request.headers.get("X-Access-Pin", "").strip()
-    if req_pin == pin:
+    req_pin = (request.headers.get("X-Access-Pin") or "").strip()
+    if req_pin and hmac.compare_digest(req_pin, pin):
         return True
 
     # Check cookie
-    cookie_token = request.cookies.get("auth_pin", "").strip()
-    if cookie_token == pin:
+    cookie_token = (request.cookies.get("auth_pin") or "").strip()
+    if cookie_token and hmac.compare_digest(cookie_token, pin):
         return True
 
-    # Check JSON body for auth endpoints
-    if request.is_json and request.json:
-        if request.json.get("access_pin", "").strip() == pin:
+    # Check JSON body safely (never crash on malformed JSON or non-string field)
+    json_data = request.get_json(silent=True)
+    if isinstance(json_data, dict):
+        body_pin = str(json_data.get("access_pin") or "").strip()
+        if body_pin and hmac.compare_digest(body_pin, pin):
             return True
 
     return False
